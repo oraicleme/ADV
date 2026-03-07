@@ -782,11 +782,12 @@ export default function AgentChat({ agent }: { agent: AgentConfig }) {
     if (!isRetailPromo(agent)) return;
 
     const apiKey =
+      import.meta.env.VITE_IONET_API_KEY ||
       import.meta.env.PUBLIC_IONET_API_KEY ||
       import.meta.env.IO_NET_API_TOKEN ||
       import.meta.env.IONET_API_KEY;
     if (!apiKey) {
-      setChatError('No API key configured. Set PUBLIC_IONET_API_KEY, IO_NET_API_TOKEN, or IONET_API_KEY in your .env file.');
+      setChatError('No API key configured. Set VITE_IONET_API_KEY in your environment.');
       return;
     }
 
@@ -1008,6 +1009,7 @@ export default function AgentChat({ agent }: { agent: AgentConfig }) {
   useEffect(() => {
     if (!isRetailPromo(agent)) return;
     const apiKey =
+      import.meta.env.VITE_IONET_API_KEY ||
       import.meta.env.PUBLIC_IONET_API_KEY ||
       import.meta.env.IO_NET_API_TOKEN ||
       import.meta.env.IONET_API_KEY;
@@ -1135,6 +1137,7 @@ export default function AgentChat({ agent }: { agent: AgentConfig }) {
       let adTitle = 'Your Ad';
       let productDescriptions: string[] = [];
       const apiKey =
+        import.meta.env.VITE_IONET_API_KEY ||
         import.meta.env.PUBLIC_IONET_API_KEY ||
         import.meta.env.IO_NET_API_TOKEN ||
         import.meta.env.IONET_API_KEY;
