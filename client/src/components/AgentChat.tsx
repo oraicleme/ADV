@@ -940,11 +940,19 @@ export default function AgentChat({ agent }: { agent: AgentConfig }) {
         try {
           setMultiAgentPending(true);
           setMultiAgentError(null);
-          const suggestions = await requestMultiAgentSuggestionsFromAPI(
+          const startTime = Date.now();
+          // Use tRPC mutation hook for multi-agent suggestions
+          const getSuggestionsMutation = trpc.agents.getSuggestions.useMutation();
+          const result = await getSuggestionsMutation.mutateAsync({
             userMessage,
             canvasState,
-            trpc
-          );
+          });
+          const suggestions = {
+            suggestions: result.suggestions || [],
+            executionPlan: result.executionPlan || { agentsUsed: [], order: [] },
+            estimatedImpact: result.estimatedImpact || 'Unknown',
+            totalExecutionTime: Date.now() - startTime,
+          };
           setMultiAgentSuggestions(suggestions);
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : 'Failed to get multi-agent suggestions';

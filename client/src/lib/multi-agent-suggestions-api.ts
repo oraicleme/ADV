@@ -18,7 +18,8 @@ export async function requestMultiAgentSuggestionsFromAPI(
 
   try {
     // Call backend tRPC procedure
-    const result = await trpcClient.agents.getSuggestions.mutate({
+    // Use the client directly - it handles the mutation internally
+    const result = await trpcClient.agents.getSuggestions({
       userMessage,
       canvasState,
     });
@@ -58,7 +59,7 @@ export async function requestAgentSuggestionFromAPI(
   trpcClient: any, // tRPC client instance
 ): Promise<MultiAgentSuggestion | null> {
   try {
-    const result = await trpcClient.agents.getAgentSuggestion.mutate({
+    const result = await trpcClient.agents.getAgentSuggestion({
       agent,
       userMessage,
       canvasState,
