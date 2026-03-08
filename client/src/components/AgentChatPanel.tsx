@@ -164,7 +164,7 @@ export default function AgentChatPanel({
 
       {/* Message history */}
       <div
-        className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3"
+        className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3"
         data-testid="chat-messages"
         role="log"
         aria-live="polite"
