@@ -31,7 +31,7 @@ export default function Home() {
           ? 'border-slate-700/50'
           : 'border-slate-200/50 bg-white/50'
       }`}>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-3 sm:py-4 flex justify-between items-center">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2 sm:py-3 flex justify-between items-center">
           <div className="flex items-center gap-2 flex-shrink-0">
             <img 
               src={isDark 
@@ -39,7 +39,7 @@ export default function Home() {
                 : "https://d2xsxph8kpxj0f.cloudfront.net/310419663030543924/aKypLJ8kKMin8BXFMHjWjn/Oraicle3_5e0a51a3.png"
               } 
               alt="Oraicle" 
-              className="h-10 sm:h-12 md:h-14 w-auto" 
+              className="h-8 sm:h-10 md:h-12 w-auto" 
             />
           </div>
           <div className="flex items-center gap-3 sm:gap-4">
@@ -68,11 +68,11 @@ export default function Home() {
       </nav>
 
       {/* Hero Section */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12 md:py-20">
-        <div className="grid md:grid-cols-2 gap-8 md:gap-12 items-center">
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-16">
+        <div className="grid md:grid-cols-2 gap-6 md:gap-10 items-center">
           {/* Left Column */}
-          <div className="space-y-6 md:space-y-8">
-            <div className="space-y-4 md:space-y-6">
+          <div className="space-y-5 md:space-y-7">
+            <div className="space-y-3 md:space-y-5">
               <div className={`inline-block px-3 py-1 rounded-full text-sm ${
                 isDark
                   ? 'bg-teal-500/20 border border-teal-500/50 text-teal-300'
@@ -80,19 +80,18 @@ export default function Home() {
               }`}>
                 ✨ AI-Powered Ad Designer
               </div>
-              <h1 className="text-4xl sm:text-5xl md:text-6xl font-bold leading-tight">
+              <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold leading-tight tracking-tight">
                 AI-Powered Retail Ads
-                <span className={isDark ? 'text-teal-400' : 'text-blue-600'}> Powered by Oraicle</span>
               </h1>
-              <p className={`text-lg md:text-xl leading-relaxed ${
-                isDark ? 'text-slate-300' : 'text-slate-600'
+              <p className={`text-base sm:text-lg leading-relaxed ${
+                isDark ? 'text-slate-400' : 'text-slate-700'
               }`}>
-                Transform your product data into stunning retail ads in seconds. Powered by Oraicle's affordable AI infrastructure with LLM credits and specialized tools. No hallucinations, no manual work.
+                Transform your product data into stunning retail ads in seconds. Affordable AI infrastructure with LLM credits and specialized tools. No hallucinations, no manual work.
               </p>
             </div>
 
             {/* Features */}
-            <div className="space-y-3 md:space-y-4">
+            <div className="space-y-2.5 md:space-y-3">
               <div className="flex gap-3 items-start">
                 <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 mt-1 ${
                   isDark
@@ -180,7 +179,7 @@ export default function Home() {
             </div>
 
             {/* CTA */}
-            <div className="pt-4">
+            <div className="pt-3 md:pt-4">
               {isAuthenticated ? (
                 <Link href="/agents/retail-promo">
                   <Button size="lg" className="bg-teal-500 hover:bg-teal-600 text-white gap-2 w-full sm:w-auto">
@@ -226,7 +225,7 @@ export default function Home() {
         </div>
 
         {/* Stats */}
-        <div className={`grid sm:grid-cols-3 gap-6 sm:gap-8 mt-16 md:mt-20 pt-12 md:pt-20 border-t ${
+        <div className={`grid sm:grid-cols-3 gap-6 sm:gap-8 mt-12 md:mt-16 pt-10 md:pt-16 border-t ${
           isDark
             ? 'border-slate-700/50'
             : 'border-slate-300/50'
