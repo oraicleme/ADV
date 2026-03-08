@@ -7,6 +7,8 @@ import { z } from "zod";
 import { protectedProcedure, router } from "../_core/trpc";
 import { invokeLLM } from "../_core/llm";
 import type { Message } from "../_core/llm";
+import { buildRagContext, formatRagContextForPrompt, storeSuggestion } from "../db-rag";
+import { comprehensiveSearch } from "../db-rag-search";
 
 // Schema for canvas state (matches client-side AdCanvasState)
 const CanvasStateSchema = z.object({
@@ -150,17 +152,35 @@ Focus on conversion potential, urgency signals, and performance optimization.`,
 };
 
 /**
- * Call a single agent via LLM
+ * Call a single agent via LLM with RAG context
  */
 async function callAgent(
   agentName: keyof typeof AGENT_PROMPTS,
   userMessage: string,
-  canvasState: z.infer<typeof CanvasStateSchema>
+  canvasState: z.infer<typeof CanvasStateSchema>,
+  userId?: number
 ): Promise<z.infer<typeof AgentSuggestionSchema> | null> {
   const startTime = Date.now();
 
   try {
-    const systemPrompt = AGENT_PROMPTS[agentName];
+    let systemPrompt = AGENT_PROMPTS[agentName];
+    let ragContext = "";
+
+    // Build RAG context from user's suggestion history
+    if (userId) {
+      try {
+        const context = await buildRagContext(userId, agentName, 3);
+        ragContext = formatRagContextForPrompt(context);
+      } catch (error) {
+        console.warn(`[RAG] Failed to build context for ${agentName}:`, error);
+      }
+    }
+
+    // Enhance system prompt with RAG context
+    if (ragContext) {
+      systemPrompt += `\n\n## User's Successful Past Suggestions${ragContext}\n\nUse these successful suggestions as inspiration and reference when making your recommendation.`;
+    }
+
     const userContent = `User Request: "${userMessage}"
 
 Current Canvas State:
@@ -175,7 +195,7 @@ Analyze this request and canvas state. Provide ONE specific, actionable suggesti
 
     const response = await invokeLLM({
       messages,
-      max_tokens: 1000,
+      max_tokens: 1500,
     });
 
     const content = response.choices[0]?.message?.content;
@@ -191,7 +211,7 @@ Analyze this request and canvas state. Provide ONE specific, actionable suggesti
 
     const parsed = JSON.parse(jsonMatch[0]);
 
-    return {
+    const suggestion = {
       id: `${agentName}-${Date.now()}`,
       agent: agentName,
       title: parsed.title || "Suggestion",
@@ -203,6 +223,27 @@ Analyze this request and canvas state. Provide ONE specific, actionable suggesti
       confidence: 0.85,
       executionTime: Date.now() - startTime,
     };
+
+    // Store suggestion in RAG history for future reference
+    if (userId) {
+      try {
+        await storeSuggestion(userId, {
+          agent: agentName,
+          userRequest: userMessage,
+          title: suggestion.title,
+          description: suggestion.description,
+          impact: suggestion.impact,
+          reasoning: suggestion.reasoning,
+          confidence: suggestion.confidence.toString(),
+          canvasStateSnapshot: JSON.stringify(canvasState),
+          productContext: canvasState.catalogSummary ? JSON.stringify(canvasState.catalogSummary) : undefined,
+        });
+      } catch (error) {
+        console.warn(`[RAG] Failed to store suggestion for ${agentName}:`, error);
+      }
+    }
+
+    return suggestion;
   } catch (error) {
     console.error(`Agent ${agentName} failed:`, error);
     return null;
@@ -264,9 +305,10 @@ export const agentsRouter = router({
         canvasState: CanvasStateSchema,
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const startTime = Date.now();
       const { userMessage, canvasState } = input;
+      const userId = ctx.user?.id;
 
       try {
         // Route to appropriate agents
@@ -274,7 +316,7 @@ export const agentsRouter = router({
 
         // Call agents in parallel for speed
         const suggestionPromises = agentsToUse.map((agentName) =>
-          callAgent(agentName, userMessage, canvasState)
+          callAgent(agentName, userMessage, canvasState, userId)
         );
 
         const results = await Promise.all(suggestionPromises);
@@ -324,11 +366,12 @@ export const agentsRouter = router({
         canvasState: CanvasStateSchema,
       })
     )
-    .mutation(async ({ input }) => {
+    .mutation(async ({ input, ctx }) => {
       const { agent, userMessage, canvasState } = input;
+      const userId = ctx.user?.id;
 
       try {
-        const suggestion = await callAgent(agent, userMessage, canvasState);
+        const suggestion = await callAgent(agent, userMessage, canvasState, userId);
         if (!suggestion) {
           throw new Error(`Agent ${agent} failed to generate suggestion`);
         }
@@ -336,6 +379,47 @@ export const agentsRouter = router({
       } catch (error) {
         console.error(`Agent ${agent} error:`, error);
         throw new Error(`Failed to get suggestion from ${agent}`);
+      }
+    }),
+
+  /**
+   * Get RAG-enhanced suggestions based on user's history
+   */
+  getRagEnhancedSuggestions: protectedProcedure
+    .input(
+      z.object({
+        userMessage: z.string(),
+        canvasState: CanvasStateSchema,
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const { userMessage, canvasState } = input;
+      const userId = ctx.user?.id;
+
+      if (!userId) {
+        throw new Error("User not authenticated");
+      }
+
+      try {
+        // Get similar past suggestions from user's history
+        const similarSuggestions = await comprehensiveSearch(userId, userMessage, undefined, 3);
+
+        // Route to appropriate agents
+        const agentsToUse = routeRequest(userMessage);
+        const suggestionPromises = agentsToUse.map((agentName) =>
+          callAgent(agentName, userMessage, canvasState, userId)
+        );
+        const results = await Promise.all(suggestionPromises);
+        const suggestions = results.filter((s) => s !== null) as z.infer<typeof AgentSuggestionSchema>[];
+
+        return {
+          suggestions,
+          similarPastSuggestions: similarSuggestions,
+          ragEnhanced: similarSuggestions.length > 0,
+        };
+      } catch (error) {
+        console.error("[getRagEnhancedSuggestions] Error:", error);
+        throw new Error("Failed to get RAG-enhanced suggestions");
       }
     }),
 });
