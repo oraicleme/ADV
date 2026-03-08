@@ -17,7 +17,7 @@ export default function Home() {
       <nav className="border-b border-slate-700/50 backdrop-blur-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
           <div className="flex items-center gap-2">
-            <img src="https://oraicle.me/_astro/logo.BoxTmDJX.png" alt="Oraicle" className="h-8 w-auto" />
+            <img src="https://d2xsxph8kpxj0f.cloudfront.net/310419663030543924/aKypLJ8kKMin8BXFMHjWjn/oraicle-dark-logo_b9643976.png" alt="Oraicle" className="h-8 w-auto" />
           </div>
           <div>
             {loading ? (
