@@ -247,3 +247,15 @@
 - [x] Add updateBrandLogoTags utility
 - [x] Add reorderBrandLogos utility
 - [x] All 102 tests passing, new features tested
+
+
+## Phase 27: Brand Logo Tagging UI & Filtering
+
+- [x] Add tag input field to LogoUploader for saving brand logos
+- [x] Add tag display with remove buttons (× button)
+- [x] Add "Add" button to add tags before saving
+- [x] Press Enter to add tags quickly
+- [x] All 102 tests passing, TypeScript compilation verified
+- [ ] Integrate tag filter dropdown in Products tab (next)
+- [ ] Add checkboxes for multi-select tag filtering (next)
+- [ ] Wire tag filtering logic to ProductSelectionPanel (next)

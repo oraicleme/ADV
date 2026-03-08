@@ -158,6 +158,8 @@ export default function LogoUploader({
   const [brandError, setBrandError] = useState<string | null>(null);
   const [hoveredBrandLogoId, setHoveredBrandLogoId] = useState<string | null>(null);
   const [selectedBrandLogos, setSelectedBrandLogos] = useState<Set<string>>(new Set());
+  const [brandLogoTags, setBrandLogoTags] = useState<string[]>([]);
+  const [tagInput, setTagInput] = useState<string>('');
 
   const logos = logosProp !== undefined ? logosProp : internalLogos;
 
@@ -211,6 +213,25 @@ export default function LogoUploader({
     if (e.key === 'Delete' && onRemoveSavedBrandLogo) {
       e.preventDefault();
       onRemoveSavedBrandLogo(logoId);
+    }
+  };
+
+  const handleAddTag = () => {
+    const trimmed = tagInput.trim();
+    if (trimmed && !brandLogoTags.includes(trimmed)) {
+      setBrandLogoTags([...brandLogoTags, trimmed]);
+      setTagInput('');
+    }
+  };
+
+  const handleRemoveTag = (tag: string) => {
+    setBrandLogoTags(brandLogoTags.filter((t) => t !== tag));
+  };
+
+  const handleTagKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleAddTag();
     }
   };
 
@@ -367,7 +388,48 @@ export default function LogoUploader({
             )}
           </div>
           {currentBrandLogoDataUris.length > 0 && onSaveCurrentBrandLogos && (
-            <div className="mb-3">
+            <div className="mb-3 space-y-2">
+              <div className="space-y-1.5">
+                <label className="text-xs font-semibold uppercase tracking-widest text-gray-500">
+                  Tags (optional)
+                </label>
+                <div className="flex gap-1.5">
+                  <input
+                    type="text"
+                    value={tagInput}
+                    onChange={(e) => setTagInput(e.target.value)}
+                    onKeyDown={handleTagKeyDown}
+                    placeholder="Add tag (e.g., electronics)"
+                    className="flex-1 rounded border border-white/10 bg-white/5 px-2 py-1.5 text-xs text-gray-300 placeholder-gray-600 focus:border-purple-500/40 focus:outline-none focus:ring-1 focus:ring-purple-500/20"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleAddTag}
+                    className="rounded border border-white/10 bg-white/5 px-2 py-1.5 text-xs font-medium text-gray-300 hover:bg-white/10 transition"
+                  >
+                    Add
+                  </button>
+                </div>
+                {brandLogoTags.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {brandLogoTags.map((tag) => (
+                      <span
+                        key={tag}
+                        className="inline-flex items-center gap-1 rounded-full bg-purple-500/20 px-2 py-1 text-xs text-purple-300"
+                      >
+                        {tag}
+                        <button
+                          type="button"
+                          onClick={() => handleRemoveTag(tag)}
+                          className="text-purple-400 hover:text-purple-300"
+                        >
+                          ×
+                        </button>
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
               <button
                 type="button"
                 onClick={onSaveCurrentBrandLogos}
@@ -383,6 +445,22 @@ export default function LogoUploader({
                 </p>
               )}
             </div>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
           )}
 
           {/* Bulk management buttons */}
