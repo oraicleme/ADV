@@ -1,4 +1,5 @@
 import { ENV } from "./env";
+import { fetchWithTimeout, retryWithBackoff, llmCircuitBreaker } from "./llm-retry";
 
 export type Role = "system" | "user" | "assistant" | "tool" | "function";
 
@@ -311,21 +312,40 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
     payload.response_format = normalizedResponseFormat;
   }
 
-  const response = await fetch(resolveApiUrl(), {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      authorization: `Bearer ${ENV.forgeApiKey}`,
-    },
-    body: JSON.stringify(payload),
+  // Wrap with circuit breaker and retry logic
+  return llmCircuitBreaker.execute(async () => {
+    return retryWithBackoff(
+      async () => {
+        const response = await fetchWithTimeout(
+          resolveApiUrl(),
+          {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              authorization: `Bearer ${ENV.forgeApiKey}`,
+            },
+            body: JSON.stringify(payload),
+          },
+          30000 // 30 second timeout
+        );
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(
+            `LLM invoke failed: ${response.status} ${response.statusText} – ${errorText}`
+          );
+        }
+
+        return (await response.json()) as InvokeResult;
+      },
+      {
+        maxRetries: 3,
+        initialDelayMs: 1000,
+        maxDelayMs: 8000,
+        timeoutMs: 30000,
+        backoffMultiplier: 2,
+      }
+    );
   });
 
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(
-      `LLM invoke failed: ${response.status} ${response.statusText} – ${errorText}`
-    );
-  }
-
-  return (await response.json()) as InvokeResult;
 }

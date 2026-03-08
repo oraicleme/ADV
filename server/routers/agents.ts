@@ -4,11 +4,12 @@
  */
 
 import { z } from "zod";
-import { protectedProcedure, router } from "../_core/trpc";
-import { invokeLLM } from "../_core/llm";
-import type { Message } from "../_core/llm";
+import { protectedProcedure, router } from "../\_core/trpc";
+import { invokeLLM } from "../\_core/llm";
+import type { Message } from "../\_core/llm";
 import { buildRagContext, formatRagContextForPrompt, storeSuggestion } from "../db-rag";
 import { comprehensiveSearch } from "../db-rag-search";
+import { optimizeProductCatalog, formatOptimizedCatalogForPrompt, generateFallbackSuggestion } from "../lib/product-optimizer";
 
 // Schema for canvas state (matches client-side AdCanvasState)
 const CanvasStateSchema = z.object({
@@ -181,10 +182,22 @@ async function callAgent(
       systemPrompt += `\n\n## User's Successful Past Suggestions${ragContext}\n\nUse these successful suggestions as inspiration and reference when making your recommendation.`;
     }
 
+    // Optimize product catalog if present to reduce token usage
+    let catalogInfo = "";
+    if (canvasState.catalogSummary && typeof canvasState.catalogSummary === "object") {
+      const products = Array.isArray(canvasState.catalogSummary)
+        ? canvasState.catalogSummary
+        : canvasState.catalogSummary.products || [];
+      if (products.length > 0) {
+        const optimized = optimizeProductCatalog(products, 15);
+        catalogInfo = `\n\nProduct Catalog Context:\n${formatOptimizedCatalogForPrompt(optimized)}`;
+      }
+    }
+
     const userContent = `User Request: "${userMessage}"
 
 Current Canvas State:
-${JSON.stringify(canvasState, null, 2)}
+${JSON.stringify(canvasState, null, 2)}${catalogInfo}
 
 Analyze this request and canvas state. Provide ONE specific, actionable suggestion in JSON format.`;
 
@@ -193,6 +206,7 @@ Analyze this request and canvas state. Provide ONE specific, actionable suggesti
       { role: "user", content: userContent },
     ];
 
+    try {
     const response = await invokeLLM({
       messages,
       max_tokens: 1500,
@@ -255,6 +269,23 @@ Analyze this request and canvas state. Provide ONE specific, actionable suggesti
     }
 
     return suggestion;
+    } catch (llmError) {
+      console.error(`[${agentName}] LLM call failed:`, llmError);
+      // Generate fallback suggestion when LLM fails
+      const fallback = generateFallbackSuggestion(agentName, String(llmError), canvasState);
+      return {
+        id: `${agentName}-fallback-${Date.now()}`,
+        agent: agentName,
+        title: fallback.title,
+        description: fallback.description,
+        impact: "medium",
+        priority: 1,
+        actions: [],
+        reasoning: fallback.reasoning,
+        confidence: fallback.confidence,
+        executionTime: Date.now() - startTime,
+      };
+    }
   } catch (error) {
     console.error(`Agent ${agentName} failed:`, error);
     return null;
@@ -272,7 +303,7 @@ function routeRequest(userMessage: string): (keyof typeof AGENT_PROMPTS)[] {
     "copy-agent": ["headline", "text", "cta", "badge", "copy", "message", "write", "say"],
     "product-agent": ["product", "image", "feature", "benefit", "analyze", "show", "display"],
     "brand-agent": ["brand", "guideline", "consistency", "compliance", "style", "identity"],
-    "optimization-agent": ["optim", "convert", "performance", "improve", "lift", "better", "enhance"],
+    "optimization-agent": ["optim", "convert", "performance", "improve", "lift", "better", "enhance", "rate"],
   };
 
   const agentsToUse = new Set<keyof typeof AGENT_PROMPTS>();
@@ -292,6 +323,11 @@ function routeRequest(userMessage: string): (keyof typeof AGENT_PROMPTS)[] {
     }
     // Simple request: use copy agent
     return ["copy-agent"];
+  }
+
+  // Special case: if only copy-agent matched but message is about optimization, add optimization-agent
+  if (agentsToUse.size === 1 && agentsToUse.has("copy-agent") && lower.includes("rate")) {
+    agentsToUse.add("optimization-agent");
   }
 
   // Reorder for optimal execution
