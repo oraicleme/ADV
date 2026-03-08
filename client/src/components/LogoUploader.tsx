@@ -129,7 +129,7 @@ interface LogoUploaderProps {
   /** Current brand logo data URIs (from uploads or selected saved) */
   currentBrandLogoDataUris?: string[];
   onSelectSavedBrandLogo?: (id: string) => void;
-  onSaveCurrentBrandLogos?: () => void;
+  onSaveCurrentBrandLogos?: (tags?: string[]) => void;
   onRemoveSavedBrandLogo?: (id: string) => void;
   isSavedBrandLogosFull?: boolean;
 }
@@ -432,7 +432,7 @@ export default function LogoUploader({
               </div>
               <button
                 type="button"
-                onClick={onSaveCurrentBrandLogos}
+                onClick={() => onSaveCurrentBrandLogos?.(brandLogoTags)}
                 data-testid="save-current-brand-logos"
                 className="flex w-full items-center justify-center gap-2 rounded-lg border border-white/20 bg-white/5 py-2 text-xs font-medium text-gray-300 transition hover:border-purple-500/40 hover:bg-purple-500/10 hover:text-purple-400 disabled:opacity-60"
               >
@@ -517,28 +517,42 @@ export default function LogoUploader({
                     type="button"
                     onClick={() => onSelectSavedBrandLogo?.(saved.id)}
                     onKeyDown={(e) => handleBrandLogoKeyDown(e, saved.id)}
-                    className="flex min-w-0 flex-1 items-center gap-2 rounded p-1 text-left focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+                    className="flex min-w-0 flex-1 flex-col gap-2 rounded p-1 text-left focus:outline-none focus:ring-2 focus:ring-purple-500/50"
                     data-testid={`use-saved-brand-logo-${saved.id}`}
                     aria-label={`Add ${saved.name} to ad`}
                   >
-                    <div className="relative">
-                      <img
-                        src={saved.dataUri}
-                        alt=""
-                        className="h-8 w-8 shrink-0 rounded border border-white/10 object-contain bg-white/5"
-                      />
-                      {/* Preview tooltip on hover */}
-                      {hoveredBrandLogoId === saved.id && (
-                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 pointer-events-none">
-                          <img
-                            src={saved.dataUri}
-                            alt={saved.name}
-                            className="h-24 w-24 rounded border border-white/20 object-contain bg-white/10 shadow-lg"
-                          />
-                        </div>
-                      )}
+                    <div className="flex items-center gap-2">
+                      <div className="relative">
+                        <img
+                          src={saved.dataUri}
+                          alt=""
+                          className="h-8 w-8 shrink-0 rounded border border-white/10 object-contain bg-white/5"
+                        />
+                        {/* Preview tooltip on hover */}
+                        {hoveredBrandLogoId === saved.id && (
+                          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 pointer-events-none">
+                            <img
+                              src={saved.dataUri}
+                              alt={saved.name}
+                              className="h-24 w-24 rounded border border-white/20 object-contain bg-white/10 shadow-lg"
+                            />
+                          </div>
+                        )}
+                      </div>
+                      <span className="min-w-0 truncate text-xs text-gray-300">{saved.name}</span>
                     </div>
-                    <span className="min-w-0 truncate text-xs text-gray-300">{saved.name}</span>
+                    {saved.tags && saved.tags.length > 0 && (
+                      <div className="flex flex-wrap gap-1">
+                        {saved.tags.map((tag) => (
+                          <span
+                            key={tag}
+                            className="inline-block rounded-full bg-purple-500/20 px-1.5 py-0.5 text-xs text-purple-300"
+                          >
+                            {tag}
+                          </span>
+                        ))}
+                      </div>
+                    )}
                   </button>
                   {onRemoveSavedBrandLogo && (
                     <button

@@ -255,7 +255,11 @@
 - [x] Add tag display with remove buttons (× button)
 - [x] Add "Add" button to add tags before saving
 - [x] Press Enter to add tags quickly
-- [x] All 102 tests passing, TypeScript compilation verified
-- [ ] Integrate tag filter dropdown in Products tab (next)
-- [ ] Add checkboxes for multi-select tag filtering (next)
-- [ ] Wire tag filtering logic to ProductSelectionPanel (next)
+- [x] Wire tags to saveBrandLogo function for persistence
+- [x] Updated onSaveCurrentBrandLogos to accept tags parameter
+- [x] Tags now saved with brand logos to localStorage
+- [x] Display tag badges on saved logos in SAVED BRAND LOGOS section
+- [x] Tag badges show below each logo with purple styling
+- [x] TypeScript compilation verified
+- [x] All 102 tests passing
+- [ ] Add tag filter dropdown in Products tab (next - optional enhancement)

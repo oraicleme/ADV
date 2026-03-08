@@ -59,6 +59,7 @@ import {
   saveBrandLogo,
   removeSavedBrandLogo,
   isSavedBrandLogosFull,
+  updateBrandLogoTags,
   type SavedBrandLogoEntry,
 } from '../lib/saved-brand-logos';
 import {
@@ -1582,14 +1583,25 @@ export default function AgentChat({ agent }: { agent: AgentConfig }) {
                 }
                 onSaveCurrentBrandLogos={
                   isRetailPromo(agent)
-                    ? () => {
+                    ? (tags?: string[]) => {
                         brandLogoDataUris.forEach((uri) => {
                           if (!savedBrandLogos.some((s) => s.dataUri === uri)) {
-                            saveBrandLogo({ dataUri: uri });
+                            const id = saveBrandLogo({ dataUri: uri, tags });
+                            if (id && tags && tags.length > 0) {
+                              updateBrandLogoTags(id, tags);
+                            }
                           }
                         });
                         setSavedBrandLogos(getSavedBrandLogos());
                       }
+
+
+
+
+
+
+
+
                     : undefined
                 }
                 onRemoveSavedBrandLogo={
