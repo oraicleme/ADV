@@ -350,7 +350,7 @@ export default function LogoUploader({
               {savedBrandLogos.map((saved) => (
                 <li
                   key={saved.id}
-                  className="flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-2 py-2 transition"
+                  className="group flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-2 py-2 transition hover:bg-white/10 hover:border-white/20"
                 >
                   <button
                     type="button"
@@ -372,7 +372,7 @@ export default function LogoUploader({
                       onClick={() => onRemoveSavedBrandLogo(saved.id)}
                       data-testid={`remove-saved-brand-logo-${saved.id}`}
                       aria-label={`Remove ${saved.name} from saved`}
-                      className="shrink-0 rounded p-1.5 text-gray-500 hover:bg-red-500/10 hover:text-red-400 focus:outline-none focus:ring-2 focus:ring-purple-500/50"
+                      className="shrink-0 rounded p-1.5 text-gray-400 opacity-0 group-hover:opacity-100 hover:bg-red-500/20 hover:text-red-400 transition-all focus:outline-none focus:ring-2 focus:ring-red-500/50 focus:opacity-100"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
