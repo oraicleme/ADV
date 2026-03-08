@@ -658,13 +658,14 @@ export default function AgentChat({ agent }: { agent: AgentConfig }) {
   ]);
 
   // Auto-open mobile preview modal on first content (Bug B: no feedback on narrow viewports)
-  const prevHasPreview = React.useRef(false);
-  useEffect(() => {
-    if (livePreviewHtml && !prevHasPreview.current) {
-      setMobilePreviewOpen(true);
-    }
-    prevHasPreview.current = Boolean(livePreviewHtml);
-  }, [livePreviewHtml]);
+  // Removed auto-open behavior - modal only opens when user clicks a button
+  // const prevHasPreview = React.useRef(false);
+  // useEffect(() => {
+  //   if (livePreviewHtml && !prevHasPreview.current) {
+  //     setMobilePreviewOpen(true);
+  //   }
+  //   prevHasPreview.current = Boolean(livePreviewHtml);
+  // }, [livePreviewHtml]);
 
   // Auto-switch to Preview mode after Generate Ad completes (STORY-44)
   useEffect(() => {

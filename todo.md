@@ -300,3 +300,11 @@
 - [x] Clarify product photos feature - mention API integration, upload, and auto-detection options
 - [x] Add real-time pricing details - explain how accurate pricing with VAT works
 - [x] Test all messaging updates - 102 tests passing
+
+
+## Phase 30: Remove Auto-Popup Modal
+
+- [x] Find the "Ad preview" modal that auto-opens on page load
+- [x] Remove auto-open behavior - modal should only open when user clicks a button
+- [x] Verify landing page loads cleanly without popups
+- [x] Test all functionality - 102 tests passing
