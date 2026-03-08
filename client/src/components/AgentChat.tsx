@@ -89,8 +89,10 @@ import {
 import { applyAgentActions, type AgentAction } from '../lib/agent-actions';
 import { GeneratingNoiseOverlay } from './GeneratingNoiseOverlay';
 import { requestMultiAgentSuggestions } from '../lib/multi-agent-suggestions';
+import { requestMultiAgentSuggestionsFromAPI } from '../lib/multi-agent-suggestions-api';
 import MultiAgentSuggestionPanel from './MultiAgentSuggestionPanel';
 import type { MultiAgentSuggestion } from '../lib/multi-agent-suggestions';
+import { trpc } from '../lib/trpc';
 
 const isRetailPromo = (agent: AgentConfig) => agent.id === 'retail-promo';
 
@@ -933,12 +935,16 @@ export default function AgentChat({ agent }: { agent: AgentConfig }) {
       };
       setChatMessages((prev) => [...prev, agentMsg]);
 
-      // Request multi-agent suggestions after chat message
+      // Request multi-agent suggestions after chat message (from backend API)
       if (suggestionsEnabled && isRetailPromo(agent)) {
         try {
           setMultiAgentPending(true);
           setMultiAgentError(null);
-          const suggestions = await requestMultiAgentSuggestions(userMessage, canvasState);
+          const suggestions = await requestMultiAgentSuggestionsFromAPI(
+            userMessage,
+            canvasState,
+            trpc
+          );
           setMultiAgentSuggestions(suggestions);
         } catch (err) {
           const errMsg = err instanceof Error ? err.message : 'Failed to get multi-agent suggestions';
