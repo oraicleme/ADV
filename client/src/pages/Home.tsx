@@ -1,6 +1,6 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
-import { Sparkles, ArrowRight } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 import { getLoginUrl } from "@/const";
 import { Link } from "wouter";
 
@@ -17,23 +17,13 @@ export default function Home() {
       <nav className="border-b border-slate-700/50 backdrop-blur-sm">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 flex justify-between items-center">
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 bg-gradient-to-br from-orange-400 to-orange-600 rounded-lg flex items-center justify-center">
-              <Sparkles className="w-5 h-5" />
-            </div>
-            <span className="text-xl font-bold">Oraicle</span>
+            <img src="https://cdn.oraicle.me/oraicle-logo.webp" alt="Oraicle" className="h-8 w-auto" />
           </div>
           <div>
             {loading ? (
               <div className="h-10 w-24 bg-slate-700 rounded animate-pulse" />
             ) : isAuthenticated ? (
-              <div className="flex items-center gap-4">
-                <span className="text-sm text-slate-300">{user?.name || user?.email}</span>
-                <Link href="/agents/retail-promo">
-                  <Button className="bg-orange-500 hover:bg-orange-600">
-                    Open Designer
-                  </Button>
-                </Link>
-              </div>
+              <span className="text-sm text-slate-300">{user?.name || user?.email}</span>
             ) : (
               <a href={getLoginUrl()}>
                 <Button className="bg-orange-500 hover:bg-orange-600">
@@ -55,16 +45,22 @@ export default function Home() {
                 ✨ AI-Powered Ad Designer
               </div>
               <h1 className="text-5xl md:text-6xl font-bold leading-tight">
-                From spreadsheet to ad
-                <span className="text-orange-400"> in one click</span>
+                AI-Powered Retail Ads
+                <span className="text-orange-400"> Powered by Oraicle</span>
               </h1>
               <p className="text-xl text-slate-300 leading-relaxed">
-                Upload your Excel/CSV with product data and images — get ready-to-post Viber/Instagram ads with accurate prices, codes, and copy. No hallucinations, no manual work.
+                Transform your product data into stunning retail ads in seconds. Powered by Oraicle's affordable AI infrastructure with LLM credits and specialized tools. No hallucinations, no manual work.
               </p>
             </div>
 
             {/* Features */}
             <div className="space-y-3">
+              <div className="flex gap-3 items-start">
+                <div className="w-5 h-5 rounded-full bg-orange-500/20 flex items-center justify-center flex-shrink-0 mt-1">
+                  <div className="w-2 h-2 rounded-full bg-orange-400" />
+                </div>
+                <span className="text-slate-300">AI-powered copy generation — multi-agent suggestions</span>
+              </div>
               <div className="flex gap-3 items-start">
                 <div className="w-5 h-5 rounded-full bg-orange-500/20 flex items-center justify-center flex-shrink-0 mt-1">
                   <div className="w-2 h-2 rounded-full bg-orange-400" />
@@ -81,7 +77,13 @@ export default function Home() {
                 <div className="w-5 h-5 rounded-full bg-orange-500/20 flex items-center justify-center flex-shrink-0 mt-1">
                   <div className="w-2 h-2 rounded-full bg-orange-400" />
                 </div>
-                <span className="text-slate-300">Excel/CSV upload — auto-detects columns, names, and prices</span>
+                <span className="text-slate-300">Intelligent product selection — fuzzy search & categorization</span>
+              </div>
+              <div className="flex gap-3 items-start">
+                <div className="w-5 h-5 rounded-full bg-orange-500/20 flex items-center justify-center flex-shrink-0 mt-1">
+                  <div className="w-2 h-2 rounded-full bg-orange-400" />
+                </div>
+                <span className="text-slate-300">Powered by Oraicle LLM credits — affordable AI infrastructure</span>
               </div>
               <div className="flex gap-3 items-start">
                 <div className="w-5 h-5 rounded-full bg-orange-500/20 flex items-center justify-center flex-shrink-0 mt-1">
@@ -134,16 +136,16 @@ export default function Home() {
         {/* Stats */}
         <div className="grid md:grid-cols-3 gap-8 mt-20 pt-20 border-t border-slate-700/50">
           <div className="text-center">
-            <div className="text-3xl font-bold text-orange-400">1080×1920</div>
-            <div className="text-slate-400 mt-2">Viber/IG Story format</div>
+            <div className="text-3xl font-bold text-orange-400">28+ Models</div>
+            <div className="text-slate-400 mt-2">Oraicle AI Models</div>
           </div>
           <div className="text-center">
-            <div className="text-3xl font-bold text-orange-400">0%</div>
-            <div className="text-slate-400 mt-2">Manual work required</div>
+            <div className="text-3xl font-bold text-orange-400">70% Savings</div>
+            <div className="text-slate-400 mt-2">vs. Proprietary APIs</div>
           </div>
           <div className="text-center">
-            <div className="text-3xl font-bold text-orange-400">100%</div>
-            <div className="text-slate-400 mt-2">Accurate pricing</div>
+            <div className="text-3xl font-bold text-orange-400">0% Manual</div>
+            <div className="text-slate-400 mt-2">Work Required</div>
           </div>
         </div>
       </main>
