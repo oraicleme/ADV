@@ -73,14 +73,16 @@ export default function Home() {
           {/* Left Column */}
           <div className="space-y-5 md:space-y-7">
             <div className="space-y-4 md:space-y-6">
-              {/* Premium Badge */}
-              <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-medium backdrop-blur-sm border ${
+              {/* Oraicle Agent Badge */}
+              <div className={`inline-flex items-center gap-3 px-5 py-2.5 rounded-2xl text-sm sm:text-base font-semibold backdrop-blur-sm border shadow-sm ${
                 isDark
-                  ? 'bg-gradient-to-r from-teal-500/10 to-cyan-500/10 border-teal-500/30 text-teal-300'
-                  : 'bg-gradient-to-r from-blue-50 to-cyan-50 border-blue-200 text-blue-700'
+                  ? 'bg-gradient-to-r from-teal-500/15 to-cyan-500/15 border-teal-500/40 text-teal-200 shadow-teal-500/10'
+                  : 'bg-gradient-to-r from-blue-50 to-cyan-50 border-blue-200/80 text-blue-700 shadow-blue-500/10'
               }`}>
-                <span className="text-base">⚡</span>
-                <span className="font-semibold">AI-Powered Platform</span>
+                <span className={`text-lg sm:text-xl ${
+                  isDark ? 'text-teal-400' : 'text-blue-600'
+                }`}>⚡</span>
+                <span>Oraicle Agent for Retail Advertising</span>
               </div>
               
               {/* Headline with Gradient */}
