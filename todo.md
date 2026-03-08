@@ -308,3 +308,16 @@
 - [x] Remove auto-open behavior - modal should only open when user clicks a button
 - [x] Verify landing page loads cleanly without popups
 - [x] Test all functionality - 102 tests passing
+
+
+## Phase 31: Fix Logo Size, Add Light Mode, Optimize Responsive Design
+
+- [x] Upload light mode Oraicle logo to CDN
+- [x] Enlarge dark mode logo (h-10 to h-14, much more prominent)
+- [x] Add light mode theme toggle with Sun/Moon button
+- [x] Optimize header for mobile with responsive logo
+- [x] Optimize hero section for mobile
+- [x] Optimize features list for mobile
+- [x] Optimize stats section for mobile
+- [x] Optimize CTA button for mobile
+- [x] All 102 tests passing
