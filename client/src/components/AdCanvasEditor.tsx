@@ -13,6 +13,8 @@ import MultiAgentSuggestionPanel from './MultiAgentSuggestionPanel';
 import type { MultiAgentSuggestion, MultiAgentSuggestionResult } from '../lib/multi-agent-suggestions';
 import ExportPanel from './ExportPanel';
 import { HeaderFooterConfigPanel } from './HeaderFooterConfigPanel';
+import { PanelTabBar, type PanelTab } from './PanelTabBar';
+import ProductSelectionPanel from './ProductSelectionPanel';
 import type { HeaderConfig, FooterConfig } from '../lib/ad-config-schema';
 import type { ConversationMessage, ChatModelMode } from '../lib/agent-chat-engine';
 import type { AgentAction } from '../lib/agent-actions';
@@ -283,6 +285,10 @@ export default function AdCanvasEditor({
   const [openPickerIdx, setOpenPickerIdx] = useState<number | null>(null);
   const [pickerRect, setPickerRect] = useState<DOMRect | null>(null);
   const [aiPromptText, setAiPromptText] = useState('');
+  const [activePanel, setActivePanel] = useState<PanelTab>('chat');
+  const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
+  const [isCreatingNewAd, setIsCreatingNewAd] = useState(false);
+  const [creationError, setCreationError] = useState<string | null>(null);
   const onFocus = useCallback(() => setAnyFocused(true), []);
   const [panelShowHeaderFooter, setPanelShowHeaderFooter] = useState(showHeaderFooterPanel);
   
@@ -290,6 +296,29 @@ export default function AdCanvasEditor({
   const headerConfig = header ?? { enabled: true, options: ['logo', 'badge'], backgroundColor: '#ffffff', textColor: '#000000', height: 80, padding: 16 };
   const footerConfig = footer ?? { enabled: true, options: ['cta-button'], backgroundColor: '#f5f5f5', textColor: '#000000', height: 60, padding: 16 };
   const onBlur = useCallback(() => setAnyFocused(false), []);
+
+  // Handle creating new ad with remaining products
+  const handleCreateNewAd = useCallback(
+    async (remainingProducts: ProductItem[]) => {
+      try {
+        setIsCreatingNewAd(true);
+        setCreationError(null);
+        // TODO: Implement actual new ad creation logic
+        // This would typically:
+        // 1. Create a new canvas with remaining products
+        // 2. Reset selected product IDs
+        // 3. Switch back to chat tab
+        console.log('Creating new ad with products:', remainingProducts);
+        setSelectedProductIds([]);
+        setActivePanel('chat');
+      } catch (error) {
+        setCreationError(error instanceof Error ? error.message : 'Failed to create new ad');
+      } finally {
+        setIsCreatingNewAd(false);
+      }
+    },
+    []
+  );
 
   /* Logo state — use prop-controlled if provided, else internal fallback */
   const logoHeight = logoHeightProp ?? DEFAULT_LOGO_HEIGHT;
@@ -1230,78 +1259,118 @@ export default function AdCanvasEditor({
         </div>
       )}
 
-      {/* STORY-62: Conversational AI chat panel (replaces STORY-58 single-turn bar) */}
-      {onChatSend && chatMessages !== undefined ? (
-        <AgentChatPanel
-          messages={chatMessages}
-          onSend={onChatSend}
-          pending={chatPending}
-          error={chatError}
-          model={chatModel}
-          onModelChange={onChatModelChange ?? (() => undefined)}
-          onUndo={onChatUndo ?? (() => undefined)}
-          canUndo={canChatUndo}
-          suggestionsEnabled={suggestionsEnabled}
-          onSuggestionsToggle={onSuggestionsToggle}
-          onApplySuggestion={onApplySuggestion}
-          onDismissSuggestion={onDismissSuggestion}
+      {/* Figma-style tab-based panel system */}
+      <div className="border-t border-border bg-background flex flex-col max-h-96">
+        <PanelTabBar
+          activeTab={activePanel}
+          onTabChange={setActivePanel}
+          productCount={products.length}
+          unreadMessages={chatMessages?.length}
         />
-      ) : onAiEditPrompt ? (
-        /* STORY-58: Legacy single-turn AI bar (shown only when chat props are absent) */
-        <div
-          className="mt-3 rounded-xl border border-white/10 bg-white/[0.04] p-3"
-          data-testid="ai-edit-prompt-bar"
-        >
-          <div className="mb-1.5 flex items-center gap-1.5">
-            <Sparkles className="h-3.5 w-3.5 text-orange-400" aria-hidden />
-            <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: colors.labelText }}>
-              Edit with AI
-            </span>
-          </div>
-          <form
-            onSubmit={async (e) => {
-              e.preventDefault();
-              const prompt = aiPromptText.trim();
-              if (!prompt || aiEditPending) return;
-              await onAiEditPrompt(prompt);
-              setAiPromptText('');
-            }}
-            className="flex items-center gap-2"
-          >
-            <input
-              type="text"
-              value={aiPromptText}
-              onChange={(e) => setAiPromptText(e.target.value)}
-              placeholder='Describe a change, e.g. "show product codes" or "make headline larger"'
-              disabled={aiEditPending}
-              className="flex-1 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs placeholder:text-gray-600 focus:border-orange-500/50 focus:outline-none disabled:opacity-50"
-              style={{ color: colors.text }}
-              data-testid="ai-edit-prompt-input"
-              maxLength={300}
-            />
-            <button
-              type="submit"
-              disabled={aiEditPending || !aiPromptText.trim()}
-              className="shrink-0 flex items-center gap-1.5 rounded-lg bg-orange-500 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-orange-400 disabled:opacity-40"
-              data-testid="ai-edit-prompt-submit"
-            >
-              {aiEditPending ? (
-                <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
-              ) : (
-                <Sparkles className="h-3.5 w-3.5" aria-hidden />
+
+        {/* Tab content */}
+        <div className="flex-1 overflow-hidden flex flex-col">
+          {activePanel === 'chat' && (onChatSend && chatMessages !== undefined ? (
+            <div className="h-full overflow-y-auto">
+              <AgentChatPanel
+                messages={chatMessages}
+                onSend={onChatSend}
+                pending={chatPending}
+                error={chatError}
+                model={chatModel}
+                onModelChange={onChatModelChange ?? (() => undefined)}
+                onUndo={onChatUndo ?? (() => undefined)}
+                canUndo={canChatUndo}
+                suggestionsEnabled={suggestionsEnabled}
+                onSuggestionsToggle={onSuggestionsToggle}
+                onApplySuggestion={onApplySuggestion}
+                onDismissSuggestion={onDismissSuggestion}
+              />
+            </div>
+          ) : onAiEditPrompt ? (
+            <div className="p-3 h-full overflow-y-auto">
+              <div className="mb-1.5 flex items-center gap-1.5">
+                <Sparkles className="h-3.5 w-3.5 text-orange-400" aria-hidden />
+                <span className="text-[10px] font-semibold uppercase tracking-widest" style={{ color: colors.labelText }}>
+                  Edit with AI
+                </span>
+              </div>
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  const prompt = aiPromptText.trim();
+                  if (!prompt || aiEditPending) return;
+                  await onAiEditPrompt(prompt);
+                  setAiPromptText('');
+                }}
+                className="flex items-center gap-2"
+              >
+                <input
+                  type="text"
+                  value={aiPromptText}
+                  onChange={(e) => setAiPromptText(e.target.value)}
+                  placeholder='Describe a change, e.g. "show product codes" or "make headline larger"'
+                  disabled={aiEditPending}
+                  className="flex-1 rounded-lg border border-white/10 bg-white/5 px-2.5 py-1.5 text-xs placeholder:text-gray-600 focus:border-orange-500/50 focus:outline-none disabled:opacity-50"
+                  style={{ color: colors.text }}
+                  data-testid="ai-edit-prompt-input"
+                  maxLength={300}
+                />
+                <button
+                  type="submit"
+                  disabled={aiEditPending || !aiPromptText.trim()}
+                  className="shrink-0 flex items-center gap-1.5 rounded-lg bg-orange-500 px-3 py-1.5 text-xs font-bold text-white transition hover:bg-orange-400 disabled:opacity-40"
+                  data-testid="ai-edit-prompt-submit"
+                >
+                  {aiEditPending ? (
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />
+                  ) : (
+                    <Sparkles className="h-3.5 w-3.5" aria-hidden />
+                  )}
+                  {aiEditPending ? 'Thinking…' : 'Apply'}
+                </button>
+              </form>
+              {aiEditError && (
+                <p className="mt-1.5 text-[10px] text-red-400" data-testid="ai-edit-prompt-error">
+                  {aiEditError}
+                </p>
               )}
-              {aiEditPending ? 'Thinking…' : 'Apply'}
-            </button>
-          </form>
-          {aiEditError && (
-            <p className="mt-1.5 text-[10px] text-red-400" data-testid="ai-edit-prompt-error">
-              {aiEditError}
-            </p>
+            </div>
+          ) : null)}
+
+          {activePanel === 'products' && (
+            <div className="h-full overflow-y-auto">
+              <ProductSelectionPanel
+                allProducts={products}
+                selectedProductIds={selectedProductIds}
+                onSelectionChange={setSelectedProductIds}
+                onCreateNewAd={handleCreateNewAd}
+                isCreatingAd={isCreatingNewAd}
+                creationError={creationError}
+              />
+            </div>
+          )}
+
+          {activePanel === 'export' && (
+            <div className="h-full overflow-y-auto p-4">
+              <ExportPanel canvasElementId="ad-preview-canvas" adName="ad-creative" />
+            </div>
+          )}
+
+          {activePanel === 'settings' && (
+            <div className="h-full overflow-y-auto p-4">
+              <div className="space-y-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground mb-2">Settings</h3>
+                  <p className="text-xs text-muted-foreground">Additional settings coming soon</p>
+                </div>
+              </div>
+            </div>
           )}
         </div>
-      ) : null}
+      </div>
 
-      {/* Multi-agent suggestions panel */}
+      {/* Multi-agent suggestions overlay */}
       {multiAgentSuggestions && (
         <MultiAgentSuggestionPanel
           result={multiAgentSuggestions}
@@ -1313,9 +1382,6 @@ export default function AdCanvasEditor({
           onDismissSuggestion={onDismissMultiAgentSuggestion ?? (() => {})}
         />
       )}
-
-      {/* Export panel for downloading ads */}
-      <ExportPanel canvasElementId="ad-preview-canvas" adName="ad-creative" />
 
       {/* Mobile "Done" button — blurs focused input on small screens (STORY-37) */}
       {anyFocused && (
