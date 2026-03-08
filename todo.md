@@ -136,3 +136,14 @@
 - [ ] Add collapsible panel toggle for mobile responsiveness
 - [ ] Test real-time updates and preview functionality
 - [ ] Verify all header/footer options render correctly
+
+
+## Phase 18: Company Info & Footer Configuration Panel
+- [ ] Create CompanyInfoPanel component for left sidebar
+- [ ] Add company info fields (name, phone, email, website, address)
+- [ ] Add social media links configuration UI
+- [ ] Add CTA button and trust badges configuration
+- [ ] Wire CompanyInfoPanel into AgentChat left sidebar
+- [ ] Connect company info to footer rendering on canvas
+- [ ] Test end-to-end footer data flow
+- [ ] Verify footer displays correctly with all company info
