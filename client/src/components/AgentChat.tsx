@@ -87,6 +87,7 @@ import {
   type ChatModelMode,
 } from '../lib/agent-chat-engine';
 import { applyAgentActions, type AgentAction } from '../lib/agent-actions';
+import { GeneratingNoiseOverlay } from './GeneratingNoiseOverlay';
 
 const isRetailPromo = (agent: AgentConfig) => agent.id === 'retail-promo';
 
@@ -1286,14 +1287,16 @@ export default function AgentChat({ agent }: { agent: AgentConfig }) {
       </div>
 
       {/* Two-panel layout */}
-      <div className="flex flex-col gap-6 lg:flex-row lg:gap-6">
+      {/* Full-screen editor layout */}
+      <div className="flex flex-col lg:flex-row gap-0 flex-1 min-h-[calc(100vh-200px)]">
         {/* Preview pane */}
+        {/* Main editor area - full width */}
         <div
           id="ad-preview-pane"
           data-testid="preview-pane"
-          className="order-1 hidden min-h-[320px] md:block lg:order-3 lg:flex-1"
+          className="order-1 flex-1 min-h-0 flex flex-col lg:order-2"
         >
-          <div className="flex h-[min(400px,60vh)] flex-col min-h-0 rounded-xl border border-white/10 bg-white/[0.03] backdrop-blur-xl lg:sticky lg:top-[5rem] lg:z-30 lg:h-[calc(100vh-6rem)]">
+          <div className="flex flex-1 flex-col min-h-0 border-0 lg:border-l lg:border-white/10 bg-white/[0.03] backdrop-blur-xl">
             {/* Header: Edit / Preview toggle + Enlarge + format (STORY-44) */}
             <div className="flex shrink-0 items-center justify-between border-b border-white/10 px-3 py-2">
               {/* Edit / Preview mode toggle */}
@@ -1486,9 +1489,10 @@ export default function AgentChat({ agent }: { agent: AgentConfig }) {
           </div>
         </div>
 
-        {/* Left sidebar */}
-        <aside className="order-2 w-full space-y-3 lg:order-1 lg:w-[420px] lg:shrink-0">
-          <AccordionStep
+        {/* Left sidebar - collapsible on desktop */}
+        <aside className="order-2 w-full lg:order-1 lg:w-[420px] lg:shrink-0 lg:border-r lg:border-white/10 lg:overflow-y-auto max-h-[calc(100vh-200px)]">
+          <div className="space-y-3 p-4">
+            <AccordionStep
             index={0}
             active={activeStep === 0}
             onToggle={() => setActiveStep(0)}
@@ -1801,6 +1805,7 @@ export default function AgentChat({ agent }: { agent: AgentConfig }) {
               </div>
             </div>
           )}
+          </div>
         </aside>
       </div>
 
@@ -1818,6 +1823,9 @@ export default function AgentChat({ agent }: { agent: AgentConfig }) {
         <ImageIcon className="h-4 w-4" />
         Show Preview
       </button>
+
+      {/* Generating ad overlay with noise animation */}
+      {isGenerating && <GeneratingNoiseOverlay />}
 
       {/* Enlarged preview modal (desktop: open from clicking preview; mobile: open from Show Preview) */}
       {mobilePreviewOpen && (
