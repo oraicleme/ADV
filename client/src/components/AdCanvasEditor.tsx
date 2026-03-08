@@ -12,6 +12,8 @@ import AgentChatPanel from './AgentChatPanel';
 import MultiAgentSuggestionPanel from './MultiAgentSuggestionPanel';
 import type { MultiAgentSuggestion, MultiAgentSuggestionResult } from '../lib/multi-agent-suggestions';
 import ExportPanel from './ExportPanel';
+import { HeaderFooterConfigPanel } from './HeaderFooterConfigPanel';
+import type { HeaderConfig, FooterConfig } from '../lib/ad-config-schema';
 import type { ConversationMessage, ChatModelMode } from '../lib/agent-chat-engine';
 import type { AgentAction } from '../lib/agent-actions';
 import type { AdElementKey, ProductBlockOptions } from '../lib/ad-constants';
@@ -163,6 +165,13 @@ export interface AdCanvasEditorProps {
   multiAgentError?: string | null;
   onApplyMultiAgentSuggestion?: (suggestion: MultiAgentSuggestion) => void;
   onDismissMultiAgentSuggestion?: (suggestionId: string) => void;
+  /** Header/Footer configuration */
+  header?: HeaderConfig;
+  onHeaderChange?: (header: HeaderConfig) => void;
+  footer?: FooterConfig;
+  onFooterChange?: (footer: FooterConfig) => void;
+  showHeaderFooterPanel?: boolean;
+  onToggleHeaderFooterPanel?: (show: boolean) => void;
 }
 
 /** Thin wrapper that draws the orange selection ring + drag handle + label. */
@@ -262,6 +271,12 @@ export default function AdCanvasEditor({
   multiAgentError = null,
   onApplyMultiAgentSuggestion,
   onDismissMultiAgentSuggestion,
+  header,
+  onHeaderChange,
+  footer,
+  onFooterChange,
+  showHeaderFooterPanel = false,
+  onToggleHeaderFooterPanel,
 }: AdCanvasEditorProps) {
   const dragIdxRef = useRef<number | null>(null);
   const [anyFocused, setAnyFocused] = useState(false);
@@ -269,6 +284,11 @@ export default function AdCanvasEditor({
   const [pickerRect, setPickerRect] = useState<DOMRect | null>(null);
   const [aiPromptText, setAiPromptText] = useState('');
   const onFocus = useCallback(() => setAnyFocused(true), []);
+  const [panelShowHeaderFooter, setPanelShowHeaderFooter] = useState(showHeaderFooterPanel);
+  
+  /* Header/Footer state */
+  const headerConfig = header ?? { enabled: true, options: ['logo', 'badge'], backgroundColor: '#ffffff', textColor: '#000000', height: 80, padding: 16 };
+  const footerConfig = footer ?? { enabled: true, options: ['cta-button'], backgroundColor: '#f5f5f5', textColor: '#000000', height: 60, padding: 16 };
   const onBlur = useCallback(() => setAnyFocused(false), []);
 
   /* Logo state — use prop-controlled if provided, else internal fallback */

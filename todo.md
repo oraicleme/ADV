@@ -127,3 +127,12 @@
 - [ ] Add seasonal/category detection and auto-customization
 - [ ] Test with various scenarios (Christmas, sports, seasonal)
 - [ ] Verify AI-powered customization works correctly
+
+
+## Phase 17: Header/Footer Panel Integration
+- [ ] Update AdCanvasEditor layout to include HeaderFooterConfigPanel
+- [ ] Wire header/footer state between panel and canvas
+- [ ] Implement real-time canvas preview updates
+- [ ] Add collapsible panel toggle for mobile responsiveness
+- [ ] Test real-time updates and preview functionality
+- [ ] Verify all header/footer options render correctly
