@@ -72,21 +72,38 @@ export default function Home() {
         <div className="grid md:grid-cols-2 gap-6 md:gap-10 items-center">
           {/* Left Column */}
           <div className="space-y-5 md:space-y-7">
-            <div className="space-y-3 md:space-y-5">
-              <div className={`inline-block px-3 py-1 rounded-full text-sm ${
+            <div className="space-y-4 md:space-y-6">
+              {/* Premium Badge */}
+              <div className={`inline-flex items-center gap-2 px-4 py-2 rounded-xl text-xs sm:text-sm font-medium backdrop-blur-sm border ${
                 isDark
-                  ? 'bg-teal-500/20 border border-teal-500/50 text-teal-300'
-                  : 'bg-blue-100 border border-blue-300 text-blue-700'
+                  ? 'bg-gradient-to-r from-teal-500/10 to-cyan-500/10 border-teal-500/30 text-teal-300'
+                  : 'bg-gradient-to-r from-blue-50 to-cyan-50 border-blue-200 text-blue-700'
               }`}>
-                ✨ AI-Powered Ad Designer
+                <span className="text-base">⚡</span>
+                <span className="font-semibold">AI-Powered Platform</span>
               </div>
-              <h1 className="text-3xl sm:text-4xl md:text-5xl lg:text-6xl font-bold leading-tight tracking-tight">
-                AI-Powered Retail Ads
-              </h1>
-              <p className={`text-base sm:text-lg leading-relaxed ${
-                isDark ? 'text-slate-400' : 'text-slate-700'
+              
+              {/* Headline with Gradient */}
+              <div className="space-y-2">
+                <h1 className={`text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-black leading-tight tracking-tighter ${
+                  isDark
+                    ? 'text-white'
+                    : 'text-slate-900'
+                }`}>
+                  Create Retail Ads
+                </h1>
+                <h2 className={`text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-black leading-tight tracking-tighter bg-gradient-to-r ${
+                  isDark
+                    ? 'from-teal-400 via-cyan-400 to-blue-400 bg-clip-text text-transparent'
+                    : 'from-blue-600 via-cyan-500 to-teal-500 bg-clip-text text-transparent'
+                }`}>
+                  in Seconds
+                </h2>
+              </div>
+              <p className={`text-base sm:text-lg leading-relaxed max-w-xl ${
+                isDark ? 'text-slate-400' : 'text-slate-600'
               }`}>
-                Transform your product data into stunning retail ads in seconds. Affordable AI infrastructure with LLM credits and specialized tools. No hallucinations, no manual work.
+                Transform product data into stunning ads instantly. Powered by affordable AI infrastructure with LLM credits and specialized tools. Zero hallucinations, zero manual work.
               </p>
             </div>
 
