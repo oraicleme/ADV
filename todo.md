@@ -288,3 +288,15 @@
 - [x] All 102 tests passing
 - [x] Updated logo to dark mode Oraicle logo (blue eye icon)
 - [x] Test complete workflow with corrected branding
+
+
+## Phase 29: Improve Landing Page Messaging & Features
+
+- [x] Clarify "AI-powered copy generation" - explain multi-agent suggestions more clearly
+- [x] Improve "Multiple layouts" description - make it easier to understand (hero, grid, category, sale)
+- [x] Add Email Marketing, WhatsApp, and Telegram to format presets (currently only Viber/IG Story, Instagram Post, Facebook Ad)
+- [x] Improve "Intelligent product selection" - highlight manual upload, Excel import, and API integration
+- [x] Add cost savings messaging - "up to 95% lower costs" or similar
+- [x] Clarify product photos feature - mention API integration, upload, and auto-detection options
+- [x] Add real-time pricing details - explain how accurate pricing with VAT works
+- [x] Test all messaging updates - 102 tests passing

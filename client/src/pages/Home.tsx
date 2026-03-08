@@ -57,43 +57,43 @@ export default function Home() {
                 <div className="w-5 h-5 rounded-full bg-teal-500/20 flex items-center justify-center flex-shrink-0 mt-1">
                   <div className="w-2 h-2 rounded-full bg-teal-400" />
                 </div>
-                <span className="text-slate-300">AI-powered copy generation — multi-agent suggestions</span>
+                <span className="text-slate-300">AI-powered copy generation — multiple AI agents create, refine, and optimize ad copy for maximum engagement</span>
               </div>
               <div className="flex gap-3 items-start">
                 <div className="w-5 h-5 rounded-full bg-teal-500/20 flex items-center justify-center flex-shrink-0 mt-1">
                   <div className="w-2 h-2 rounded-full bg-teal-400" />
                 </div>
-                <span className="text-slate-300">Multiple layouts — hero, grid, category groups, sale/discount</span>
+                <span className="text-slate-300">Multiple ad layouts — hero banners, product grids, category showcases, and promotional templates</span>
               </div>
               <div className="flex gap-3 items-start">
                 <div className="w-5 h-5 rounded-full bg-teal-500/20 flex items-center justify-center flex-shrink-0 mt-1">
                   <div className="w-2 h-2 rounded-full bg-teal-400" />
                 </div>
-                <span className="text-slate-300">Format presets — Viber/IG Story, Instagram Post, Facebook Ad</span>
+                <span className="text-slate-300">Format presets — Instagram, Facebook, TikTok, Email, WhatsApp, Telegram, and more</span>
               </div>
               <div className="flex gap-3 items-start">
                 <div className="w-5 h-5 rounded-full bg-teal-500/20 flex items-center justify-center flex-shrink-0 mt-1">
                   <div className="w-2 h-2 rounded-full bg-teal-400" />
                 </div>
-                <span className="text-slate-300">Intelligent product selection — fuzzy search & categorization</span>
+                <span className="text-slate-300">Product data import — upload manually, import from Excel/CSV, or connect via API</span>
               </div>
               <div className="flex gap-3 items-start">
                 <div className="w-5 h-5 rounded-full bg-teal-500/20 flex items-center justify-center flex-shrink-0 mt-1">
                   <div className="w-2 h-2 rounded-full bg-teal-400" />
                 </div>
-                <span className="text-slate-300">Powered by Oraicle LLM credits — affordable AI infrastructure</span>
+                <span className="text-slate-300">Powered by Oraicle LLM credits — up to 95% lower costs than proprietary AI APIs</span>
               </div>
               <div className="flex gap-3 items-start">
                 <div className="w-5 h-5 rounded-full bg-teal-500/20 flex items-center justify-center flex-shrink-0 mt-1">
                   <div className="w-2 h-2 rounded-full bg-teal-400" />
                 </div>
-                <span className="text-slate-300">Product photos — upload and assign to products</span>
+                <span className="text-slate-300">Product photos — upload directly, auto-detect from URLs, or fetch via API integration</span>
               </div>
               <div className="flex gap-3 items-start">
                 <div className="w-5 h-5 rounded-full bg-teal-500/20 flex items-center justify-center flex-shrink-0 mt-1">
                   <div className="w-2 h-2 rounded-full bg-teal-400" />
                 </div>
-                <span className="text-slate-300">Accurate pricing with VAT — zero hallucinations</span>
+                <span className="text-slate-300">Real-time pricing with VAT — accurate calculations, zero hallucinations, instant updates</span>
               </div>
             </div>
 
