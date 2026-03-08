@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { Upload, X, Image as ImageIcon, Building2, Bookmark, Trash2 } from 'lucide-react';
 import {
   isValidLogoFile,
@@ -156,6 +156,8 @@ export default function LogoUploader({
   const [internalLogos, setInternalLogos] = useState<LogoEntry[]>([]);
   const [companyError, setCompanyError] = useState<string | null>(null);
   const [brandError, setBrandError] = useState<string | null>(null);
+  const [hoveredBrandLogoId, setHoveredBrandLogoId] = useState<string | null>(null);
+  const [selectedBrandLogos, setSelectedBrandLogos] = useState<Set<string>>(new Set());
 
   const logos = logosProp !== undefined ? logosProp : internalLogos;
 
@@ -204,6 +206,38 @@ export default function LogoUploader({
     },
     [logosProp, logos, update, onLogosChange],
   );
+
+  const handleBrandLogoKeyDown = (e: React.KeyboardEvent, logoId: string) => {
+    if (e.key === 'Delete' && onRemoveSavedBrandLogo) {
+      e.preventDefault();
+      onRemoveSavedBrandLogo(logoId);
+    }
+  };
+
+  const toggleBrandLogoSelection = (logoId: string) => {
+    const newSelected = new Set(selectedBrandLogos);
+    if (newSelected.has(logoId)) {
+      newSelected.delete(logoId);
+    } else {
+      newSelected.add(logoId);
+    }
+    setSelectedBrandLogos(newSelected);
+  };
+
+  const selectAllBrandLogos = () => {
+    setSelectedBrandLogos(new Set(savedBrandLogos.map((l) => l.id)));
+  };
+
+  const deselectAllBrandLogos = () => {
+    setSelectedBrandLogos(new Set());
+  };
+
+  const deleteSelectedBrandLogos = () => {
+    selectedBrandLogos.forEach((id) => {
+      onRemoveSavedBrandLogo?.(id);
+    });
+    setSelectedBrandLogos(new Set());
+  };
 
   const companyLogos = logos.filter((l) => l.type === 'company');
   const brandLogos = logos.filter((l) => l.type === 'brand');
@@ -326,6 +360,11 @@ export default function LogoUploader({
               <Bookmark className="h-3.5 w-3.5 text-purple-500/80" />
               Saved brand logos
             </span>
+            {savedBrandLogos.length > 0 && (
+              <span className="text-xs text-gray-500">
+                {selectedBrandLogos.size > 0 ? `${selectedBrandLogos.size} selected` : `${savedBrandLogos.length} total`}
+              </span>
+            )}
           </div>
           {currentBrandLogoDataUris.length > 0 && onSaveCurrentBrandLogos && (
             <div className="mb-3">
@@ -345,25 +384,82 @@ export default function LogoUploader({
               )}
             </div>
           )}
+
+          {/* Bulk management buttons */}
+          {savedBrandLogos.length > 0 && (
+            <div className="mb-3 flex gap-2">
+              <button
+                type="button"
+                onClick={selectAllBrandLogos}
+                className="flex-1 rounded px-2 py-1.5 text-xs font-medium text-gray-300 border border-white/10 hover:bg-white/5 transition"
+                data-testid="select-all-brand-logos"
+              >
+                Select All
+              </button>
+              <button
+                type="button"
+                onClick={deselectAllBrandLogos}
+                className="flex-1 rounded px-2 py-1.5 text-xs font-medium text-gray-300 border border-white/10 hover:bg-white/5 transition"
+                data-testid="deselect-all-brand-logos"
+              >
+                Deselect All
+              </button>
+              {selectedBrandLogos.size > 0 && (
+                <button
+                  type="button"
+                  onClick={deleteSelectedBrandLogos}
+                  className="flex-1 rounded px-2 py-1.5 text-xs font-medium text-red-400 border border-red-500/30 hover:bg-red-500/10 transition"
+                  data-testid="delete-selected-brand-logos"
+                >
+                  Delete Selected
+                </button>
+              )}
+            </div>
+          )}
+
           {savedBrandLogos.length > 0 && (
             <ul className="space-y-2" role="list" aria-label="Saved brand logos">
               {savedBrandLogos.map((saved) => (
                 <li
                   key={saved.id}
                   className="group flex items-center gap-2 rounded-lg border border-white/10 bg-white/5 px-2 py-2 transition hover:bg-white/10 hover:border-white/20"
+                  onMouseEnter={() => setHoveredBrandLogoId(saved.id)}
+                  onMouseLeave={() => setHoveredBrandLogoId(null)}
                 >
+                  {/* Checkbox for bulk selection */}
+                  <input
+                    type="checkbox"
+                    checked={selectedBrandLogos.has(saved.id)}
+                    onChange={() => toggleBrandLogoSelection(saved.id)}
+                    className="h-4 w-4 rounded border-white/20 bg-white/5 cursor-pointer"
+                    aria-label={`Select ${saved.name}`}
+                  />
+
                   <button
                     type="button"
                     onClick={() => onSelectSavedBrandLogo?.(saved.id)}
+                    onKeyDown={(e) => handleBrandLogoKeyDown(e, saved.id)}
                     className="flex min-w-0 flex-1 items-center gap-2 rounded p-1 text-left focus:outline-none focus:ring-2 focus:ring-purple-500/50"
                     data-testid={`use-saved-brand-logo-${saved.id}`}
                     aria-label={`Add ${saved.name} to ad`}
                   >
-                    <img
-                      src={saved.dataUri}
-                      alt=""
-                      className="h-8 w-8 shrink-0 rounded border border-white/10 object-contain bg-white/5"
-                    />
+                    <div className="relative">
+                      <img
+                        src={saved.dataUri}
+                        alt=""
+                        className="h-8 w-8 shrink-0 rounded border border-white/10 object-contain bg-white/5"
+                      />
+                      {/* Preview tooltip on hover */}
+                      {hoveredBrandLogoId === saved.id && (
+                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 pointer-events-none">
+                          <img
+                            src={saved.dataUri}
+                            alt={saved.name}
+                            className="h-24 w-24 rounded border border-white/20 object-contain bg-white/10 shadow-lg"
+                          />
+                        </div>
+                      )}
+                    </div>
                     <span className="min-w-0 truncate text-xs text-gray-300">{saved.name}</span>
                   </button>
                   {onRemoveSavedBrandLogo && (
