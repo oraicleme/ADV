@@ -62,7 +62,7 @@ export interface HeaderConfig {
   backgroundColor?: string;
   textColor?: string;
   height?: number; // pixels
-  padding?: number;
+  padding?: number | string;
   alignment?: 'left' | 'center' | 'right';
   
   // Specific elements
@@ -72,13 +72,13 @@ export interface HeaderConfig {
     height?: number;
   };
   badge?: {
-    text: string;
+    text?: string;
     backgroundColor?: string;
     textColor?: string;
   };
   discount?: {
-    amount: number;
-    unit: '%' | '$' | 'fixed';
+    amount?: number;
+    unit?: '%' | '$' | 'fixed';
     backgroundColor?: string;
   };
   tagline?: string;
@@ -91,12 +91,12 @@ export interface FooterConfig {
   backgroundColor?: string;
   textColor?: string;
   height?: number;
-  padding?: number;
+  padding?: number | string;
   alignment?: 'left' | 'center' | 'right';
   
   // Specific elements
   cta?: {
-    text: string;
+    text?: string;
     url?: string;
     backgroundColor?: string;
     textColor?: string;
