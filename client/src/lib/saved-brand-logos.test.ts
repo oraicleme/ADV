@@ -60,3 +60,70 @@ describe('saved-brand-logos (STORY-49)', () => {
     expect(isSavedBrandLogosFull()).toBe(false);
   });
 });
+
+  it('saveBrandLogo accepts tags', () => {
+    const id = saveBrandLogo({ dataUri: DATA_URI, name: 'Apple', tags: ['electronics', 'tech'] });
+    const logos = getSavedBrandLogos();
+    expect(logos[0]?.tags).toEqual(['electronics', 'tech']);
+  });
+
+  it('updateBrandLogoTags updates tags for a logo', () => {
+    const id = saveBrandLogo({ dataUri: DATA_URI, name: 'Brand', tags: ['old'] });
+    const { updateBrandLogoTags } = await import('./saved-brand-logos');
+    updateBrandLogoTags(id!, ['new', 'tags']);
+    const logos = getSavedBrandLogos();
+    expect(logos[0]?.tags).toEqual(['new', 'tags']);
+  });
+
+  it('getAllBrandLogoTags returns all unique tags', () => {
+    saveBrandLogo({ dataUri: DATA_URI, name: 'Logo 1', tags: ['electronics', 'tech'] });
+    saveBrandLogo({ dataUri: DATA_URI, name: 'Logo 2', tags: ['sports', 'tech'] });
+    const { getAllBrandLogoTags } = await import('./saved-brand-logos');
+    const tags = getAllBrandLogoTags();
+    expect(tags).toEqual(['electronics', 'sports', 'tech']);
+  });
+
+  it('filterBrandLogosByTags filters by tags', () => {
+    saveBrandLogo({ dataUri: DATA_URI, name: 'Logo 1', tags: ['electronics'] });
+    saveBrandLogo({ dataUri: DATA_URI, name: 'Logo 2', tags: ['sports'] });
+    const { filterBrandLogosByTags } = await import('./saved-brand-logos');
+    const filtered = filterBrandLogosByTags(['electronics']);
+    expect(filtered).toHaveLength(1);
+    expect(filtered[0]?.name).toBe('Logo 1');
+  });
+
+  it('reorderBrandLogos reorders logos', () => {
+    const id1 = saveBrandLogo({ dataUri: DATA_URI, name: 'Logo 1' });
+    const id2 = saveBrandLogo({ dataUri: DATA_URI, name: 'Logo 2' });
+    const { reorderBrandLogos } = await import('./saved-brand-logos');
+    reorderBrandLogos([id2!, id1!]);
+    const logos = getSavedBrandLogos();
+    expect(logos[0]?.name).toBe('Logo 2');
+    expect(logos[1]?.name).toBe('Logo 1');
+  });
+
+  it('exportBrandLogos exports as JSON', () => {
+    saveBrandLogo({ dataUri: DATA_URI, name: 'Logo 1', tags: ['test'] });
+    const { exportBrandLogos } = await import('./saved-brand-logos');
+    const exported = exportBrandLogos();
+    const parsed = JSON.parse(exported);
+    expect(Array.isArray(parsed)).toBe(true);
+    expect(parsed[0]?.name).toBe('Logo 1');
+  });
+
+  it('importBrandLogos imports from JSON', () => {
+    saveBrandLogo({ dataUri: DATA_URI, name: 'Logo 1' });
+    const { exportBrandLogos, importBrandLogos } = await import('./saved-brand-logos');
+    const exported = exportBrandLogos();
+    window.localStorage.clear();
+    const count = importBrandLogos(exported);
+    expect(count).toBe(1);
+    const logos = getSavedBrandLogos();
+    expect(logos[0]?.name).toBe('Logo 1');
+  });
+
+  it('importBrandLogos returns 0 for invalid JSON', () => {
+    const { importBrandLogos } = await import('./saved-brand-logos');
+    const count = importBrandLogos('invalid');
+    expect(count).toBe(0);
+  });
