@@ -2,10 +2,12 @@
  * PanelTabBar
  * Tab-based navigation for bottom panels (Chat, Products, Export, Settings)
  * Industry standard used by Figma, Adobe, and other design tools
+ * Optimized for best-in-class UI/UX
  */
 
 import React from 'react';
 import { MessageSquare, Package, Download, Settings } from 'lucide-react';
+import { Badge } from '@/components/ui/badge';
 
 export type PanelTab = 'chat' | 'products' | 'export' | 'settings';
 
@@ -55,7 +57,7 @@ export const PanelTabBar: React.FC<PanelTabBarProps> = ({
   unreadMessages,
 }) => {
   return (
-    <div className="flex items-center gap-1 border-b border-border bg-background px-2 py-2">
+    <div className="flex items-center gap-1 border-b border-border bg-background px-3 py-2.5">
       {TABS.map((tab) => {
         const isActive = activeTab === tab.id;
         const badgeValue = tab.badge?.({ activeTab, onTabChange, productCount, unreadMessages });
@@ -65,25 +67,28 @@ export const PanelTabBar: React.FC<PanelTabBarProps> = ({
             key={tab.id}
             onClick={() => onTabChange(tab.id)}
             className={`
-              relative flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium
-              transition-all duration-200
+              relative flex items-center gap-2 px-3 py-2 rounded-lg text-sm font-medium
+              transition-all duration-200 whitespace-nowrap
               ${
                 isActive
-                  ? 'bg-orange-500/10 text-orange-600 border-b-2 border-orange-500'
-                  : 'text-muted-foreground hover:text-foreground hover:bg-muted'
+                  ? 'bg-orange-500/15 text-orange-600 border-b-2 border-orange-500'
+                  : 'text-muted-foreground hover:text-foreground hover:bg-muted/50'
               }
             `}
             aria-selected={isActive}
             role="tab"
           >
             {tab.icon}
-            <span>{tab.label}</span>
+            <span className="text-xs font-semibold tracking-wide">{tab.label}</span>
 
-            {/* Badge */}
+            {/* Badge - Optimized styling */}
             {badgeValue !== undefined && badgeValue > 0 && (
-              <span className="ml-1 inline-flex items-center justify-center w-5 h-5 text-xs font-bold text-white bg-orange-500 rounded-full">
-                {badgeValue > 99 ? '99+' : badgeValue}
-              </span>
+              <Badge
+                variant="default"
+                className="ml-1.5 bg-orange-500 hover:bg-orange-600 text-white text-xs font-bold px-1.5 py-0 h-5 min-w-[20px] flex items-center justify-center rounded-full"
+              >
+                {badgeValue > 999 ? '999+' : badgeValue}
+              </Badge>
             )}
           </button>
         );

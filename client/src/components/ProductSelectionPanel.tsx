@@ -2,6 +2,7 @@
  * ProductSelectionPanel
  * Standalone panel for intelligent product selection and multi-ad campaign management
  * Integrates with tab-based bottom panel system
+ * Optimized for best-in-class UI/UX
  */
 
 import React, { useState, useEffect, useMemo } from 'react';
@@ -87,32 +88,49 @@ export const ProductSelectionPanel: React.FC<ProductSelectionPanelProps> = ({
 
   return (
     <div className="flex flex-col h-full bg-background">
-      {/* Header */}
-      <div className="border-b border-border px-4 py-3 space-y-3">
-        <div>
-          <h2 className="text-lg font-semibold text-foreground">Product Selection</h2>
-          <p className="text-xs text-muted-foreground mt-1">
-            {allProducts.length} total • {selectedNames.size} selected • {remainingProducts.length} unused
-          </p>
+      {/* Header - Optimized spacing and typography */}
+      <div className="border-b border-border px-4 py-3.5 space-y-3.5">
+        {/* Title and Stats */}
+        <div className="space-y-1.5">
+          <h2 className="text-sm font-bold text-foreground tracking-tight">PRODUCT SELECTION</h2>
+          <div className="flex items-center gap-4 text-xs text-muted-foreground font-medium">
+            <span className="flex items-center gap-1">
+              <span className="text-foreground font-semibold">{allProducts.length}</span>
+              <span>total</span>
+            </span>
+            <span className="text-border">•</span>
+            <span className="flex items-center gap-1">
+              <span className="text-orange-500 font-semibold">{selectedNames.size}</span>
+              <span>selected</span>
+            </span>
+            <span className="text-border">•</span>
+            <span className="flex items-center gap-1">
+              <span className="text-foreground font-semibold">{remainingProducts.length}</span>
+              <span>unused</span>
+            </span>
+          </div>
         </div>
 
-        {/* Search and Filters */}
-        <div className="space-y-2">
+        {/* Search Input - Optimized */}
+        <div className="space-y-2.5">
           <Input
-            placeholder="Search products by name, code, or category..."
+            placeholder="Search by name, code, or category..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="text-sm"
+            className="text-sm h-9"
           />
 
-          <label className="flex items-center gap-2 cursor-pointer">
+          {/* Filter Toggle - Optimized */}
+          <label className="flex items-center gap-2.5 cursor-pointer group">
             <input
               type="checkbox"
               checked={showOnlyUnused}
               onChange={(e) => setShowOnlyUnused(e.target.checked)}
-              className="w-4 h-4 rounded border-border"
+              className="w-4 h-4 rounded border-border accent-orange-500"
             />
-            <span className="text-sm text-muted-foreground">Show only unused products</span>
+            <span className="text-xs font-medium text-muted-foreground group-hover:text-foreground transition-colors">
+              Show only unused products
+            </span>
           </label>
         </div>
 
@@ -125,7 +143,7 @@ export const ProductSelectionPanel: React.FC<ProductSelectionPanelProps> = ({
       </div>
 
       {/* Draggable Product List */}
-      <div className="flex-1 overflow-y-auto px-4 py-4">
+      <div className="flex-1 overflow-y-auto px-4 py-3.5">
         {filteredProducts.length > 0 ? (
           <DraggableProductList
             products={filteredProducts}
@@ -136,7 +154,7 @@ export const ProductSelectionPanel: React.FC<ProductSelectionPanelProps> = ({
         ) : (
           <div className="flex items-center justify-center h-full text-center">
             <div className="space-y-2">
-              <p className="text-sm font-medium text-foreground">No products found</p>
+              <p className="text-sm font-semibold text-foreground">No products found</p>
               <p className="text-xs text-muted-foreground">
                 {searchQuery ? 'Try adjusting your search' : 'Add products to get started'}
               </p>
@@ -145,29 +163,29 @@ export const ProductSelectionPanel: React.FC<ProductSelectionPanelProps> = ({
         )}
       </div>
 
-      {/* Create New Ad Section */}
+      {/* Create New Ad Section - Optimized */}
       {remainingProducts.length > 0 && (
-        <div className="border-t border-border bg-blue-50 dark:bg-blue-950 px-4 py-4 space-y-3">
+        <div className="border-t border-border bg-blue-50 dark:bg-blue-950/30 px-4 py-3.5 space-y-3">
           <div className="space-y-1">
-            <h3 className="font-semibold text-sm text-blue-900 dark:text-blue-100">
-              Create New Ad with Remaining Products
+            <h3 className="font-bold text-xs text-blue-900 dark:text-blue-100 tracking-tight">
+              CREATE NEW AD WITH REMAINING PRODUCTS
             </h3>
-            <p className="text-xs text-blue-800 dark:text-blue-200">
-              {remainingProducts.length} products ready for a new ad campaign
+            <p className="text-xs text-blue-800 dark:text-blue-200 font-medium">
+              {remainingProducts.length} product{remainingProducts.length !== 1 ? 's' : ''} ready for new campaign
             </p>
           </div>
 
           {creationError && (
-            <div className="flex gap-2 p-2 bg-red-100 dark:bg-red-900 rounded text-xs text-red-800 dark:text-red-100">
+            <div className="flex gap-2 p-2.5 bg-red-100 dark:bg-red-900/30 rounded-lg text-xs text-red-800 dark:text-red-200">
               <AlertCircle className="w-4 h-4 flex-shrink-0 mt-0.5" />
-              <span>{creationError}</span>
+              <span className="font-medium">{creationError}</span>
             </div>
           )}
 
           <Button
             onClick={handleCreateNewAd}
             disabled={isCreatingAd || remainingProducts.length === 0}
-            className="w-full gap-2 bg-blue-600 hover:bg-blue-700 text-white"
+            className="w-full gap-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold h-9"
           >
             {isCreatingAd ? (
               <>
