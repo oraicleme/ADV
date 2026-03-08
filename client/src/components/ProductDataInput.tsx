@@ -137,23 +137,31 @@ export default function ProductDataInput({
 
   const visibleIndices = useMemo(() => {
     const q = searchQuery.toLowerCase().trim();
-    return products
-      .map((_, i) => i)
-      .filter((i) => {
-        const p = products[i];
-        if (q) {
-          const nameMatch = p.name.toLowerCase().includes(q);
-          const codeMatch = (p.code ?? '').toLowerCase().includes(q);
-          if (!nameMatch && !codeMatch) return false;
-        }
-        for (const dim of Object.keys(activeFilters)) {
-          const active = activeFilters[dim];
-          if (!active || active.size === 0) continue;
-          const val = getProductClassificationValue(p, dim);
-          if (!active.has(val)) return false;
-        }
-        return true;
+    let filtered = products.map((_, i) => i);
+
+    // Apply search query with intelligent fuzzy matching
+    if (q) {
+      const searchResults = filterProductsIntelligent(products, q, {
+        searchFields: ['name', 'code'],
+        fuzzyMatch: true,
+        groupByVariant: false,
       });
+      filtered = searchResults;
+    }
+
+    // Apply classification filters
+    filtered = filtered.filter((i) => {
+      const p = products[i];
+      for (const dim of Object.keys(activeFilters)) {
+        const active = activeFilters[dim];
+        if (!active || active.size === 0) continue;
+        const val = getProductClassificationValue(p, dim);
+        if (!active.has(val)) return false;
+      }
+      return true;
+    });
+
+    return filtered;
   }, [products, searchQuery, activeFilters]);
 
   useEffect(() => {

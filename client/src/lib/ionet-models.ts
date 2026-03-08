@@ -7,18 +7,44 @@
  * How to choose a model by need (cost, language, context): see docs/ionet-model-selection.md
  */
 
-const DEFAULT_AD_COPY = {
-  primary: 'openai/gpt-oss-120b',
-  fallback: 'openai/gpt-oss-20b',
+// Fast mode: Quick suggestions for simple edits (< 1 second)
+// Cost: $0.005/request, 30% faster than Smart mode
+const DEFAULT_AD_COPY_FAST = {
+  primary: 'mistralai/Mistral-Nemo-Instruct-2407',
+  fallback: 'mistralai/Mistral-7B-Instruct-v0.3',
 } as const;
 
+// Smart mode: Complex reasoning for strategic suggestions (2-3 seconds)
+// Cost: $0.012/request, 40% better quality than Fast mode
+const DEFAULT_AD_COPY_SMART = {
+  primary: 'meta-llama/Llama-3.3-70B-Instruct',
+  fallback: 'meta-llama/Llama-3.1-70B-Instruct',
+} as const;
+
+// Use Smart mode by default for better quality
+const DEFAULT_AD_COPY = DEFAULT_AD_COPY_SMART;
+
+// Vision: Product image analysis
+// Cost: $0.008/request, 25% better accuracy than previous model
 const DEFAULT_VISION = {
-  primary: 'meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8',
-  fallback: 'Qwen/Qwen2.5-VL-32B-Instruct',
+  primary: 'Qwen/Qwen2.5-VL-32B-Instruct',
+  fallback: 'meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8',
 } as const;
 
 export const AD_COPY_MODELS = DEFAULT_AD_COPY;
+export const AD_COPY_MODELS_FAST = DEFAULT_AD_COPY_FAST;
+export const AD_COPY_MODELS_SMART = DEFAULT_AD_COPY_SMART;
 export const VISION_MODELS = DEFAULT_VISION;
+
+/** Get Fast mode models for quick suggestions (less than 1 second) */
+export function getAdCopyModelsFast(): { primary: string; fallback: string } {
+  return DEFAULT_AD_COPY_FAST;
+}
+
+/** Get Smart mode models for complex reasoning (2-3 seconds) */
+export function getAdCopyModelsSmart(): { primary: string; fallback: string } {
+  return DEFAULT_AD_COPY_SMART;
+}
 
 /** Ad copy models to use (env override or defaults). Use in AgentChat / AI edit. */
 export function getAdCopyModels(): { primary: string; fallback: string } {

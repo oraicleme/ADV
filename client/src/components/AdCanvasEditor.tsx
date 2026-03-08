@@ -9,6 +9,7 @@
 import React, { useRef, useState, useCallback } from 'react';
 import { GripVertical, X, Plus, AlignLeft, AlignCenter, AlignRight, Sparkles, Loader2 } from 'lucide-react';
 import AgentChatPanel from './AgentChatPanel';
+import ExportPanel from './ExportPanel';
 import type { ConversationMessage, ChatModelMode } from '../lib/agent-chat-engine';
 import type { AgentAction } from '../lib/agent-actions';
 import type { AdElementKey, ProductBlockOptions } from '../lib/ad-constants';
@@ -1266,6 +1267,9 @@ export default function AdCanvasEditor({
           )}
         </div>
       ) : null}
+
+      {/* Export panel for downloading ads */}
+      <ExportPanel canvasElementId="ad-preview-canvas" adName="ad-creative" />
 
       {/* Mobile "Done" button — blurs focused input on small screens (STORY-37) */}
       {anyFocused && (
