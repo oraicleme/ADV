@@ -16,8 +16,9 @@ import {
 } from '@dnd-kit/sortable';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { GripVertical, Check } from 'lucide-react';
+import { GripVertical, Check, Eye } from 'lucide-react';
 import { Checkbox } from '@/components/ui/checkbox';
+import { ProductPreviewModal } from './ProductPreviewModal';
 import type { ProductItem } from '@/lib/ad-templates';
 
 interface DraggableProductListProps {
@@ -25,6 +26,7 @@ interface DraggableProductListProps {
   selectedNames: Set<string>;
   onSelectionChange: (names: Set<string>) => void;
   onReorder: (reorderedProducts: ProductItem[]) => void;
+  onPreview?: (product: ProductItem) => void;
 }
 
 /**
@@ -34,10 +36,12 @@ function SortableProductItem({
   product,
   isSelected,
   onToggle,
+  onPreview,
 }: {
   product: ProductItem;
   isSelected: boolean;
   onToggle: (name: string) => void;
+  onPreview?: (product: ProductItem) => void;
 }) {
   const {
     attributes,
@@ -103,6 +107,15 @@ function SortableProductItem({
         </div>
       </div>
 
+      {/* Preview button */}
+      <button
+        onClick={() => onPreview?.(product)}
+        className="flex-shrink-0 p-1 text-muted-foreground hover:text-orange-500 transition-colors"
+        aria-label="Preview product"
+      >
+        <Eye className="h-4 w-4" />
+      </button>
+
       {/* Selection indicator */}
       {isSelected && (
         <Check className="h-4 w-4 text-orange-500 flex-shrink-0" />
@@ -120,6 +133,7 @@ export function DraggableProductList({
   selectedNames,
   onSelectionChange,
   onReorder,
+  onPreview,
 }: DraggableProductListProps) {
   const [orderedProducts, setOrderedProducts] = useState(products);
 
@@ -155,6 +169,8 @@ export function DraggableProductList({
     onSelectionChange(newSelection);
   };
 
+  const [previewProduct, setPreviewProduct] = useState<ProductItem | null>(null);
+
   return (
     <DndContext
       sensors={sensors}
@@ -172,10 +188,21 @@ export function DraggableProductList({
               product={product}
               isSelected={selectedNames.has(product.name)}
               onToggle={handleToggle}
+              onPreview={(p) => {
+                setPreviewProduct(p);
+                onPreview?.(p);
+              }}
             />
           ))}
         </div>
       </SortableContext>
+
+      {/* Product Preview Modal */}
+      <ProductPreviewModal
+        product={previewProduct}
+        isOpen={!!previewProduct}
+        onClose={() => setPreviewProduct(null)}
+      />
     </DndContext>
   );
 }
