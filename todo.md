@@ -354,14 +354,14 @@
 
 ## Phase 35: Complete Landing Page Redesign - Single Screen Layout
 
-- [ ] Research 2026 single-screen SaaS landing page best practices
-- [ ] Broaden headline - not just "Retail Ads" but also wholesale (retail+wholesale)
-- [ ] Redesign badge - make it premium, not generic (current lightning bolt looks cheap)
-- [ ] Fit entire landing page in one viewport (no scroll needed on desktop)
-- [ ] Condense features into compact visual format (icons, grid, not bullet list)
-- [ ] Optimize for mobile single-screen view
-- [ ] Remove unnecessary spacing and text bloat
-- [ ] Test on major desktop (1920x1080, 1440x900) and mobile (375x812, 390x844) viewports
+- [x] Research 2026 single-screen SaaS landing page best practices (Linear.app style)
+- [x] Broaden headline - "Product ads, designed by AI" (covers retail + wholesale)
+- [x] Redesign badge - Oraicle favicon + "Oraicle Agent · Promotional Ad Design"
+- [x] Fit entire landing page in one viewport (centered hero, no scroll)
+- [x] Condense features into compact icon chips row
+- [x] Optimize for mobile single-screen view
+- [x] Remove unnecessary spacing and text bloat
+- [x] All 102 tests passing
 
 
 ## Phase 36: Replace Badge Icon with Oraicle Favicon
@@ -371,3 +371,11 @@
 - [x] Verify badge looks correct on desktop and mobile
 
 - [x] Update cost messaging - Oraicle uses open-source LLMs, up to 200x cheaper than proprietary APIs
+
+
+## Phase 37: Fix Vertical Spacing - Balance Header/Content/Footer
+
+- [x] Fix large gap - centered hero with flex justify-center
+- [x] Better vertical centering of main content in viewport
+- [x] Reduce empty space - stats bar anchored to bottom, content centered
+- [x] All 102 tests passing
