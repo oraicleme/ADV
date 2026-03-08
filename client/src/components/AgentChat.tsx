@@ -88,6 +88,9 @@ import {
 } from '../lib/agent-chat-engine';
 import { applyAgentActions, type AgentAction } from '../lib/agent-actions';
 import { GeneratingNoiseOverlay } from './GeneratingNoiseOverlay';
+import { requestMultiAgentSuggestions } from '../lib/multi-agent-suggestions';
+import MultiAgentSuggestionPanel from './MultiAgentSuggestionPanel';
+import type { MultiAgentSuggestion } from '../lib/multi-agent-suggestions';
 
 const isRetailPromo = (agent: AgentConfig) => agent.id === 'retail-promo';
 
@@ -334,6 +337,10 @@ export default function AgentChat({ agent }: { agent: AgentConfig }) {
   const lastSuggestionTimeRef = useRef<number>(0);
   const suggestionDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isGenerating, setIsGenerating] = useState(false);
+  /** Multi-agent suggestion state */
+  const [multiAgentSuggestions, setMultiAgentSuggestions] = useState<any>(null);
+  const [multiAgentPending, setMultiAgentPending] = useState(false);
+  const [multiAgentError, setMultiAgentError] = useState<string | null>(null);
   const [mobilePreviewOpen, setMobilePreviewOpen] = useState(false);
   const [savedCreatives, setSavedCreatives] = useState<SavedCreative[]>([]);
   const [myAdsOpen, setMyAdsOpen] = useState(false);
@@ -925,6 +932,21 @@ export default function AgentChat({ agent }: { agent: AgentConfig }) {
         timestamp: Date.now(),
       };
       setChatMessages((prev) => [...prev, agentMsg]);
+
+      // Request multi-agent suggestions after chat message
+      if (suggestionsEnabled && isRetailPromo(agent)) {
+        try {
+          setMultiAgentPending(true);
+          setMultiAgentError(null);
+          const suggestions = await requestMultiAgentSuggestions(userMessage, canvasState);
+          setMultiAgentSuggestions(suggestions);
+        } catch (err) {
+          const errMsg = err instanceof Error ? err.message : 'Failed to get multi-agent suggestions';
+          setMultiAgentError(errMsg);
+        } finally {
+          setMultiAgentPending(false);
+        }
+      }
 
       if (isRetailPromo(agent)) {
         logRetailPromoEvent('ai_chat_message', { actionsCount: actions.length, model: chatModel });

@@ -9,6 +9,8 @@
 import React, { useRef, useState, useCallback } from 'react';
 import { GripVertical, X, Plus, AlignLeft, AlignCenter, AlignRight, Sparkles, Loader2 } from 'lucide-react';
 import AgentChatPanel from './AgentChatPanel';
+import MultiAgentSuggestionPanel from './MultiAgentSuggestionPanel';
+import type { MultiAgentSuggestion, MultiAgentSuggestionResult } from '../lib/multi-agent-suggestions';
 import ExportPanel from './ExportPanel';
 import type { ConversationMessage, ChatModelMode } from '../lib/agent-chat-engine';
 import type { AgentAction } from '../lib/agent-actions';
@@ -155,6 +157,12 @@ export interface AdCanvasEditorProps {
   onSuggestionsToggle?: (enabled: boolean) => void;
   onApplySuggestion?: (timestamp: number, actions: AgentAction[]) => void;
   onDismissSuggestion?: (timestamp: number) => void;
+  /** Multi-agent suggestions */
+  multiAgentSuggestions?: MultiAgentSuggestionResult | null;
+  multiAgentPending?: boolean;
+  multiAgentError?: string | null;
+  onApplyMultiAgentSuggestion?: (suggestion: MultiAgentSuggestion) => void;
+  onDismissMultiAgentSuggestion?: (suggestionId: string) => void;
 }
 
 /** Thin wrapper that draws the orange selection ring + drag handle + label. */
@@ -249,6 +257,11 @@ export default function AdCanvasEditor({
   onSuggestionsToggle,
   onApplySuggestion,
   onDismissSuggestion,
+  multiAgentSuggestions = null,
+  multiAgentPending = false,
+  multiAgentError = null,
+  onApplyMultiAgentSuggestion,
+  onDismissMultiAgentSuggestion,
 }: AdCanvasEditorProps) {
   const dragIdxRef = useRef<number | null>(null);
   const [anyFocused, setAnyFocused] = useState(false);
@@ -1267,6 +1280,19 @@ export default function AdCanvasEditor({
           )}
         </div>
       ) : null}
+
+      {/* Multi-agent suggestions panel */}
+      {multiAgentSuggestions && (
+        <MultiAgentSuggestionPanel
+          result={multiAgentSuggestions}
+          isLoading={multiAgentPending}
+          error={multiAgentError}
+          onApplySuggestion={(suggestion) => {
+            onApplyMultiAgentSuggestion?.(suggestion);
+          }}
+          onDismissSuggestion={onDismissMultiAgentSuggestion ?? (() => {})}
+        />
+      )}
 
       {/* Export panel for downloading ads */}
       <ExportPanel canvasElementId="ad-preview-canvas" adName="ad-creative" />
