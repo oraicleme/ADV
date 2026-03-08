@@ -11,6 +11,8 @@ import {
   Maximize2,
   Pencil,
   Eye,
+  PanelLeft,
+  PanelLeftClose,
 } from 'lucide-react';
 import AdCanvasEditor from './AdCanvasEditor';
 import { Badge } from './ui/badge';
@@ -345,6 +347,7 @@ export default function AgentChat({ agent }: { agent: AgentConfig }) {
   const [multiAgentPending, setMultiAgentPending] = useState(false);
   const [multiAgentError, setMultiAgentError] = useState<string | null>(null);
   const [mobilePreviewOpen, setMobilePreviewOpen] = useState(false);
+  const [leftPanelOpen, setLeftPanelOpen] = useState(true);
   const [savedCreatives, setSavedCreatives] = useState<SavedCreative[]>([]);
   const [myAdsOpen, setMyAdsOpen] = useState(false);
   const enlargeButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -1312,224 +1315,16 @@ export default function AgentChat({ agent }: { agent: AgentConfig }) {
   );
 
   return (
-    <div className="mx-auto max-w-7xl px-4">
-      {/* Header */}
-      <div className="mb-8 text-center">
-        <Badge className="mb-3 border border-orange-500/30 bg-orange-500/10 px-3 py-1 text-xs font-semibold text-orange-400">
-          {agent.badge}
-        </Badge>
-        <h1 className="mb-2 text-3xl font-extrabold tracking-tight bg-gradient-to-r from-orange-400 via-amber-300 to-orange-500 bg-clip-text text-transparent sm:text-4xl">
-          {agent.name}
-        </h1>
-        <p className="mx-auto max-w-2xl text-lg font-light text-gray-400">{agent.tagline}</p>
-      </div>
-
-      {/* Two-panel layout */}
+    <div className="flex h-screen w-full flex-col overflow-hidden">
       {/* Full-screen editor layout */}
-      <div className="flex flex-col lg:flex-row gap-0 flex-1 min-h-[calc(100vh-200px)]">
-        {/* Preview pane */}
-        {/* Main editor area - full width */}
-        <div
-          id="ad-preview-pane"
-          data-testid="preview-pane"
-          className="order-1 flex-1 min-h-0 flex flex-col lg:order-2"
-        >
-          <div className="flex flex-1 flex-col min-h-0 border-0 lg:border-l lg:border-white/10 bg-white/[0.03] backdrop-blur-xl">
-            {/* Header: Edit / Preview toggle + Enlarge + format (STORY-44) */}
-            <div className="flex shrink-0 items-center justify-between border-b border-white/10 px-3 py-2">
-              {/* Edit / Preview mode toggle */}
-              <div className="flex items-center gap-0.5 rounded-lg bg-white/5 p-0.5" data-testid="canvas-mode-toggle">
-                <button
-                  type="button"
-                  onClick={() => setCanvasMode('edit')}
-                  data-testid="mode-edit-btn"
-                  aria-pressed={canvasMode === 'edit'}
-                  className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold transition-all focus:outline-none focus:ring-1 focus:ring-orange-500/50 ${
-                    canvasMode === 'edit'
-                      ? 'bg-white/10 text-white shadow-sm'
-                      : 'text-gray-500 hover:text-gray-300'
-                  }`}
-                >
-                  <Pencil className="h-3 w-3" />
-                  Edit
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setCanvasMode('preview')}
-                  data-testid="mode-preview-btn"
-                  aria-pressed={canvasMode === 'preview'}
-                  title="Preview mode (press P)"
-                  className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold transition-all focus:outline-none focus:ring-1 focus:ring-orange-500/50 ${
-                    canvasMode === 'preview'
-                      ? 'bg-orange-500/20 text-orange-300 shadow-sm'
-                      : 'text-gray-500 hover:text-gray-300'
-                  }`}
-                >
-                  <Eye className="h-3 w-3" />
-                  Preview
-                </button>
-              </div>
-              <div className="flex items-center gap-2">
-                {previewHtmlToShow && (
-                  <button
-                    ref={enlargeButtonRef}
-                    type="button"
-                    onClick={() => {
-                      previewTriggerRef.current = enlargeButtonRef.current;
-                      setMobilePreviewOpen(true);
-                    }}
-                    data-testid="enlarge-button"
-                    aria-label="Enlarge preview"
-                    className="rounded-md border border-white/10 bg-white/5 p-1 text-gray-400 transition hover:bg-white/10 hover:text-gray-200 focus:outline-none focus:ring-1 focus:ring-orange-500/50"
-                  >
-                    <Maximize2 className="h-3.5 w-3.5" />
-                  </button>
-                )}
-                <span className="text-xs text-gray-500">{selectedFormat.label}</span>
-              </div>
-            </div>
-            {/* Edit / Preview mode content (STORY-44) */}
-            <div className="flex-1 min-h-0 overflow-y-auto" data-testid="preview-scroll-area">
-              {canvasMode === 'edit' ? (
-                <AdCanvasEditor
-                  headline={adHeadline}
-                  onHeadlineChange={setAdHeadline}
-                  titleFontSize={adTitleFontSize}
-                  onTitleFontSizeChange={setAdTitleFontSize}
-                  ctaButtons={adCtaButtons}
-                  onCtaButtonsChange={setAdCtaButtons}
-                  badgeText={adBadgeText}
-                  onBadgeTextChange={setAdBadgeText}
-                  disclaimerText={adDisclaimerText}
-                  onDisclaimerTextChange={setAdDisclaimerText}
-                  emojiOrIcon={adEmojiOrIcon}
-                  onEmojiOrIconChange={setAdEmojiOrIcon}
-                  elementOrder={adElementOrder}
-                  onElementOrderChange={setAdElementOrder}
-                  products={templateProducts}
-                  companyLogoDataUri={currentCompanyLogoDataUri}
-                  brandLogoDataUris={brandLogoDataUris}
-                  headerBrandLogoDataUris={brandLogoDataUris.slice(0, HEADER_BRAND_LOGO_MAX_COUNT)}
-                  style={selectedStyle}
-                  logoHeight={adLogoHeight}
-                  onLogoHeightChange={setAdLogoHeight}
-                  logoAlignment={adLogoAlignment}
-                  onLogoAlignmentChange={setAdLogoAlignment}
-                  logoCompanion={adLogoCompanion}
-                  onLogoCompanionChange={setAdLogoCompanion}
-                  productImageHeight={adProductBlockOptions.imageHeight}
-                  onProductImageHeightChange={(v) =>
-                    setAdProductBlockOptions((prev) => ({ ...prev, imageHeight: v }))
-                  }
-                  productBlockOptions={adProductBlockOptions}
-                  onProductBlockOptionsChange={setAdProductBlockOptions}
-                  savedProductPhotos={isRetailPromo(agent) ? savedProductPhotos : []}
-                  onAssignProductPhoto={
-                    isRetailPromo(agent)
-                      ? (canvasIdx, dataUri) => {
-                          const origIdx = templateProductOriginalIndices[canvasIdx];
-                          if (origIdx === undefined) return;
-                          setProducts((prev) => {
-                            const next = [...prev];
-                            next[origIdx] = { ...next[origIdx]!, imageDataUri: dataUri };
-                            return next;
-                          });
-                        }
-                      : undefined
-                  }
-                  onUploadProductPhoto={
-                    isRetailPromo(agent)
-                      ? async (canvasIdx, file) => {
-                          const origIdx = templateProductOriginalIndices[canvasIdx];
-                          if (origIdx === undefined) return;
-                          try {
-                            const dataUri = await fileToBase64DataUri(file);
-                            setProducts((prev) => {
-                              const next = [...prev];
-                              next[origIdx] = { ...next[origIdx]!, imageDataUri: dataUri };
-                              return next;
-                            });
-                            const p = products[origIdx];
-                            const id = saveProductPhoto({
-                              dataUri,
-                              name: p?.name,
-                              code: p?.code,
-                              price: p?.retailPrice ?? p?.price,
-                            });
-                            if (id) setSavedProductPhotos(getSavedProductPhotos());
-                          } catch {
-                            // silent
-                          }
-                        }
-                      : undefined
-                  }
-                  chatMessages={isRetailPromo(agent) ? chatMessages : undefined}
-                  onChatSend={isRetailPromo(agent) ? handleChatSend : undefined}
-                  chatPending={chatPending}
-                  chatError={chatError}
-                  chatModel={chatModel}
-                  onChatModelChange={setChatModel}
-                  onChatUndo={handleChatUndo}
-                  canChatUndo={undoSnapshot !== null}
-                  suggestionsEnabled={suggestionsEnabled}
-                  onSuggestionsToggle={setSuggestionsEnabled}
-                  onApplySuggestion={handleApplySuggestion}
-                  onDismissSuggestion={handleDismissSuggestion}
-                />
-              ) : previewHtmlToShow ? (
-                <div
-                  data-testid="ad-preview-frame-wrapper"
-                  className="flex flex-col items-center gap-3 p-4 min-h-full"
-                >
-                  <DeviceFrame format={selectedFormat}>
-                    <Suspense fallback={<SectionLoader />}>
-                      <AdPreviewFrameLazy
-                        html={previewHtmlToShow}
-                        format={selectedFormat}
-                        containerWidth={isPortraitFormat ? PORTRAIT_CONTAINER_WIDTH - 16 : desktopContainerWidth}
-                      />
-                    </Suspense>
-                  </DeviceFrame>
-                  <p
-                    data-testid="preview-format-label"
-                    className="text-xs text-gray-600 text-center select-none"
-                  >
-                    {selectedFormat.label} · {selectedFormat.width} × {selectedFormat.height}
-                  </p>
-                </div>
-              ) : (
-                <div
-                  data-testid="preview-empty-state"
-                  className="flex flex-1 flex-col items-center justify-center gap-3 py-16 text-center"
-                >
-                  <Eye className="h-8 w-8 text-gray-600" />
-                  <div>
-                    <p className="text-sm text-gray-400">Nothing to preview yet</p>
-                    <p className="mt-1 text-xs text-gray-600">Add a logo or products in Edit mode.</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => setCanvasMode('edit')}
-                    className="text-xs text-orange-400 hover:text-orange-300 transition"
-                  >
-                    ← Back to Edit
-                  </button>
-                </div>
-              )}
-            </div>
-            {previewHtmlToShow && (
-              <div className="shrink-0 border-t border-white/10" data-testid="preview-actions-bar">
-                <Suspense fallback={null}>
-                  <AdPreviewActionsLazy html={previewHtmlToShow} format={selectedFormat} />
-                </Suspense>
-              </div>
-            )}
-          </div>
-        </div>
-
+      <div className="flex flex-1 overflow-hidden">
         {/* Left sidebar - collapsible on desktop */}
-        <aside className="order-2 w-full lg:order-1 lg:w-[420px] lg:shrink-0 lg:border-r lg:border-white/10 lg:overflow-y-auto max-h-[calc(100vh-200px)]">
-          <div className="space-y-3 p-4">
+        <aside
+          className={`hidden lg:flex lg:flex-col lg:shrink-0 lg:border-r lg:border-white/10 lg:overflow-y-auto h-full transition-all duration-300 ease-in-out ${
+            leftPanelOpen ? 'lg:w-[380px]' : 'lg:w-0 lg:overflow-hidden lg:border-r-0'
+          }`}
+        >
+          <div className={`space-y-3 p-4 min-w-[380px] ${leftPanelOpen ? '' : 'lg:hidden'}`}>
             <AccordionStep
             index={0}
             active={activeStep === 0}
@@ -1856,7 +1651,220 @@ export default function AgentChat({ agent }: { agent: AgentConfig }) {
           )}
           </div>
         </aside>
+
+        {/* Panel Toggle Button */}
+        <button
+          onClick={() => setLeftPanelOpen((o) => !o)}
+          className="hidden lg:flex items-center justify-center border-r border-white/10 bg-white/[0.02] px-1.5 hover:bg-white/[0.06] transition-colors"
+          title={leftPanelOpen ? 'Collapse panel' : 'Expand panel'}
+        >
+          {leftPanelOpen ? (
+            <PanelLeftClose className="h-4 w-4 text-gray-500 hover:text-gray-300" />
+          ) : (
+            <PanelLeft className="h-4 w-4 text-gray-500 hover:text-gray-300" />
+          )}
+        </button>
+
+        {/* Main editor area */}
+        <div
+          id="ad-preview-pane"
+          data-testid="preview-pane"
+          className="flex-1 min-h-0 min-w-0 flex flex-col"
+        >
+          <div className="flex flex-1 flex-col min-h-0 bg-white/[0.03] backdrop-blur-xl">
+            {/* Header: Edit / Preview toggle + Enlarge + format (STORY-44) */}
+            <div className="flex shrink-0 items-center justify-between border-b border-white/10 px-3 py-2">
+              {/* Edit / Preview mode toggle */}
+              <div className="flex items-center gap-0.5 rounded-lg bg-white/5 p-0.5" data-testid="canvas-mode-toggle">
+                <button
+                  type="button"
+                  onClick={() => setCanvasMode('edit')}
+                  data-testid="mode-edit-btn"
+                  aria-pressed={canvasMode === 'edit'}
+                  className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold transition-all focus:outline-none focus:ring-1 focus:ring-orange-500/50 ${
+                    canvasMode === 'edit'
+                      ? 'bg-white/10 text-white shadow-sm'
+                      : 'text-gray-500 hover:text-gray-300'
+                  }`}
+                >
+                  <Pencil className="h-3 w-3" />
+                  Edit
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCanvasMode('preview')}
+                  data-testid="mode-preview-btn"
+                  aria-pressed={canvasMode === 'preview'}
+                  title="Preview mode (press P)"
+                  className={`flex items-center gap-1.5 rounded-md px-2.5 py-1 text-xs font-semibold transition-all focus:outline-none focus:ring-1 focus:ring-orange-500/50 ${
+                    canvasMode === 'preview'
+                      ? 'bg-orange-500/20 text-orange-300 shadow-sm'
+                      : 'text-gray-500 hover:text-gray-300'
+                  }`}
+                >
+                  <Eye className="h-3 w-3" />
+                  Preview
+                </button>
+              </div>
+              <div className="flex items-center gap-2">
+                {previewHtmlToShow && (
+                  <button
+                    ref={enlargeButtonRef}
+                    type="button"
+                    onClick={() => {
+                      previewTriggerRef.current = enlargeButtonRef.current;
+                      setMobilePreviewOpen(true);
+                    }}
+                    data-testid="enlarge-button"
+                    aria-label="Enlarge preview"
+                    className="rounded-md border border-white/10 bg-white/5 p-1 text-gray-400 transition hover:bg-white/10 hover:text-gray-200 focus:outline-none focus:ring-1 focus:ring-orange-500/50"
+                  >
+                    <Maximize2 className="h-3.5 w-3.5" />
+                  </button>
+                )}
+                <span className="text-xs text-gray-500">{selectedFormat.label}</span>
+              </div>
+            </div>
+            {/* Edit / Preview mode content (STORY-44) */}
+            <div className="flex-1 min-h-0 overflow-y-auto" data-testid="preview-scroll-area">
+              {canvasMode === 'edit' ? (
+                <AdCanvasEditor
+                  headline={adHeadline}
+                  onHeadlineChange={setAdHeadline}
+                  titleFontSize={adTitleFontSize}
+                  onTitleFontSizeChange={setAdTitleFontSize}
+                  ctaButtons={adCtaButtons}
+                  onCtaButtonsChange={setAdCtaButtons}
+                  badgeText={adBadgeText}
+                  onBadgeTextChange={setAdBadgeText}
+                  disclaimerText={adDisclaimerText}
+                  onDisclaimerTextChange={setAdDisclaimerText}
+                  emojiOrIcon={adEmojiOrIcon}
+                  onEmojiOrIconChange={setAdEmojiOrIcon}
+                  elementOrder={adElementOrder}
+                  onElementOrderChange={setAdElementOrder}
+                  products={templateProducts}
+                  companyLogoDataUri={currentCompanyLogoDataUri}
+                  brandLogoDataUris={brandLogoDataUris}
+                  headerBrandLogoDataUris={brandLogoDataUris.slice(0, HEADER_BRAND_LOGO_MAX_COUNT)}
+                  style={selectedStyle}
+                  logoHeight={adLogoHeight}
+                  onLogoHeightChange={setAdLogoHeight}
+                  logoAlignment={adLogoAlignment}
+                  onLogoAlignmentChange={setAdLogoAlignment}
+                  logoCompanion={adLogoCompanion}
+                  onLogoCompanionChange={setAdLogoCompanion}
+                  productImageHeight={adProductBlockOptions.imageHeight}
+                  onProductImageHeightChange={(v) =>
+                    setAdProductBlockOptions((prev) => ({ ...prev, imageHeight: v }))
+                  }
+                  productBlockOptions={adProductBlockOptions}
+                  onProductBlockOptionsChange={setAdProductBlockOptions}
+                  savedProductPhotos={isRetailPromo(agent) ? savedProductPhotos : []}
+                  onAssignProductPhoto={
+                    isRetailPromo(agent)
+                      ? (canvasIdx, dataUri) => {
+                          const origIdx = templateProductOriginalIndices[canvasIdx];
+                          if (origIdx === undefined) return;
+                          setProducts((prev) => {
+                            const next = [...prev];
+                            next[origIdx] = { ...next[origIdx]!, imageDataUri: dataUri };
+                            return next;
+                          });
+                        }
+                      : undefined
+                  }
+                  onUploadProductPhoto={
+                    isRetailPromo(agent)
+                      ? async (canvasIdx, file) => {
+                          const origIdx = templateProductOriginalIndices[canvasIdx];
+                          if (origIdx === undefined) return;
+                          try {
+                            const dataUri = await fileToBase64DataUri(file);
+                            setProducts((prev) => {
+                              const next = [...prev];
+                              next[origIdx] = { ...next[origIdx]!, imageDataUri: dataUri };
+                              return next;
+                            });
+                            const p = products[origIdx];
+                            const id = saveProductPhoto({
+                              dataUri,
+                              name: p?.name,
+                              code: p?.code,
+                              price: p?.retailPrice ?? p?.price,
+                            });
+                            if (id) setSavedProductPhotos(getSavedProductPhotos());
+                          } catch {
+                            // silent
+                          }
+                        }
+                      : undefined
+                  }
+                  chatMessages={isRetailPromo(agent) ? chatMessages : undefined}
+                  onChatSend={isRetailPromo(agent) ? handleChatSend : undefined}
+                  chatPending={chatPending}
+                  chatError={chatError}
+                  chatModel={chatModel}
+                  onChatModelChange={setChatModel}
+                  onChatUndo={handleChatUndo}
+                  canChatUndo={undoSnapshot !== null}
+                  suggestionsEnabled={suggestionsEnabled}
+                  onSuggestionsToggle={setSuggestionsEnabled}
+                  onApplySuggestion={handleApplySuggestion}
+                  onDismissSuggestion={handleDismissSuggestion}
+                />
+              ) : previewHtmlToShow ? (
+                <div
+                  data-testid="ad-preview-frame-wrapper"
+                  className="flex flex-col items-center gap-3 p-4 min-h-full"
+                >
+                  <DeviceFrame format={selectedFormat}>
+                    <Suspense fallback={<SectionLoader />}>
+                      <AdPreviewFrameLazy
+                        html={previewHtmlToShow}
+                        format={selectedFormat}
+                        containerWidth={isPortraitFormat ? PORTRAIT_CONTAINER_WIDTH - 16 : desktopContainerWidth}
+                      />
+                    </Suspense>
+                  </DeviceFrame>
+                  <p
+                    data-testid="preview-format-label"
+                    className="text-xs text-gray-600 text-center select-none"
+                  >
+                    {selectedFormat.label} · {selectedFormat.width} × {selectedFormat.height}
+                  </p>
+                </div>
+              ) : (
+                <div
+                  data-testid="preview-empty-state"
+                  className="flex flex-1 flex-col items-center justify-center gap-3 py-16 text-center"
+                >
+                  <Eye className="h-8 w-8 text-gray-600" />
+                  <div>
+                    <p className="text-sm text-gray-400">Nothing to preview yet</p>
+                    <p className="mt-1 text-xs text-gray-600">Add a logo or products in Edit mode.</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setCanvasMode('edit')}
+                    className="text-xs text-orange-400 hover:text-orange-300 transition"
+                  >
+                    ← Back to Edit
+                  </button>
+                </div>
+              )}
+            </div>
+            {previewHtmlToShow && (
+              <div className="shrink-0 border-t border-white/10" data-testid="preview-actions-bar">
+                <Suspense fallback={null}>
+                  <AdPreviewActionsLazy html={previewHtmlToShow} format={selectedFormat} />
+                </Suspense>
+              </div>
+            )}
+          </div>
+        </div>
       </div>
+
 
       {/* Mobile: floating Show Preview button */}
       <button
