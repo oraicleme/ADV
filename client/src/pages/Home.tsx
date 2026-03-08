@@ -1,64 +1,77 @@
 import { useAuth } from "@/_core/hooks/useAuth";
 import { Button } from "@/components/ui/button";
-import { ArrowRight, Moon, Sun } from "lucide-react";
+import { ArrowRight, Moon, Sun, Sparkles, Layers, Share2, Database } from "lucide-react";
 import { getLoginUrl } from "@/const";
 import { Link } from "wouter";
 import { useState, useEffect } from "react";
 
 /**
  * Home page for Oraicle Retail Promo Designer
- * Landing page with link to the agent
+ * Single-screen landing page — fits in one viewport on desktop
  */
 export default function Home() {
   const { user, loading, isAuthenticated } = useAuth();
   const [isDark, setIsDark] = useState(true);
 
   useEffect(() => {
-    // Check system preference
     const prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
     setIsDark(prefersDark);
   }, []);
 
+  const features = [
+    { icon: Sparkles, label: "AI Copy Generation", desc: "Multi-agent ad copy" },
+    { icon: Layers, label: "Multiple Layouts", desc: "Hero, grid, promo templates" },
+    { icon: Share2, label: "All Channels", desc: "Social, email, messaging" },
+    { icon: Database, label: "Easy Import", desc: "Excel, API, or manual" },
+  ];
+
   return (
-    <div className={`min-h-screen transition-colors duration-300 ${
+    <div className={`h-screen flex flex-col overflow-hidden transition-colors duration-300 ${
       isDark
-        ? 'bg-gradient-to-br from-slate-950 via-slate-900 to-slate-950 text-white'
-        : 'bg-gradient-to-br from-white via-slate-50 to-white text-slate-900'
+        ? 'bg-slate-950 text-white'
+        : 'bg-white text-slate-900'
     }`}>
-      {/* Navigation */}
-      <nav className={`border-b backdrop-blur-sm ${
+      {/* Subtle background gradient */}
+      <div className={`absolute inset-0 pointer-events-none ${
         isDark
-          ? 'border-slate-700/50'
-          : 'border-slate-200/50 bg-white/50'
+          ? 'bg-[radial-gradient(ellipse_80%_50%_at_50%_-20%,rgba(14,165,233,0.15),transparent)]'
+          : 'bg-[radial-gradient(ellipse_80%_50%_at_50%_-20%,rgba(14,165,233,0.08),transparent)]'
+      }`} />
+
+      {/* Navigation — compact */}
+      <nav className={`relative z-10 border-b shrink-0 ${
+        isDark ? 'border-white/5' : 'border-slate-100'
       }`}>
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-2 sm:py-3 flex justify-between items-center">
-          <div className="flex items-center gap-2 flex-shrink-0">
-            <img 
-              src={isDark 
-                ? "https://d2xsxph8kpxj0f.cloudfront.net/310419663030543924/aKypLJ8kKMin8BXFMHjWjn/oraicle-dark-logo_b9643976.png"
-                : "https://d2xsxph8kpxj0f.cloudfront.net/310419663030543924/aKypLJ8kKMin8BXFMHjWjn/Oraicle3_5e0a51a3.png"
-              } 
-              alt="Oraicle" 
-              className="h-8 sm:h-10 md:h-12 w-auto" 
-            />
-          </div>
-          <div className="flex items-center gap-3 sm:gap-4">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-14 flex justify-between items-center">
+          <img 
+            src={isDark 
+              ? "https://d2xsxph8kpxj0f.cloudfront.net/310419663030543924/aKypLJ8kKMin8BXFMHjWjn/oraicle-dark-logo_b9643976.png"
+              : "https://d2xsxph8kpxj0f.cloudfront.net/310419663030543924/aKypLJ8kKMin8BXFMHjWjn/Oraicle3_5e0a51a3.png"
+            } 
+            alt="Oraicle" 
+            className="h-7 sm:h-8 w-auto" 
+          />
+          <div className="flex items-center gap-2 sm:gap-3">
             <button
               onClick={() => setIsDark(!isDark)}
-              className={`p-2 rounded-lg transition-colors ${
+              className={`p-1.5 rounded-lg transition-colors ${
                 isDark
-                  ? 'bg-slate-800 hover:bg-slate-700 text-yellow-400'
-                  : 'bg-slate-200 hover:bg-slate-300 text-slate-700'
+                  ? 'hover:bg-white/10 text-slate-400 hover:text-white'
+                  : 'hover:bg-slate-100 text-slate-500 hover:text-slate-900'
               }`}
               aria-label="Toggle theme"
             >
-              {isDark ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+              {isDark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </button>
             {loading ? (
-              <div className="h-10 w-20 sm:w-24 bg-slate-700 rounded animate-pulse" />
+              <div className="h-8 w-16 bg-slate-700 rounded animate-pulse" />
             ) : (
               <a href={getLoginUrl()}>
-                <Button className="bg-teal-500 hover:bg-teal-600 text-white text-sm sm:text-base">
+                <Button size="sm" className={`text-xs font-medium ${
+                  isDark
+                    ? 'bg-white text-slate-900 hover:bg-slate-200'
+                    : 'bg-slate-900 text-white hover:bg-slate-800'
+                }`}>
                   Sign In
                 </Button>
               </a>
@@ -67,214 +80,198 @@ export default function Home() {
         </div>
       </nav>
 
-      {/* Hero Section */}
-      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 md:py-16">
-        <div className="grid md:grid-cols-2 gap-6 md:gap-10 items-center">
-          {/* Left Column */}
-          <div className="space-y-5 md:space-y-7">
-            <div className="space-y-4 md:space-y-6">
-              {/* Oraicle Agent Badge */}
-              <div className={`inline-flex items-center gap-3 px-5 py-2.5 rounded-2xl text-sm sm:text-base font-semibold backdrop-blur-sm border shadow-sm ${
+      {/* Main Content — fills remaining viewport */}
+      <main className="relative z-10 flex-1 flex items-center">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 w-full">
+          <div className="grid lg:grid-cols-2 gap-8 lg:gap-16 items-center">
+            
+            {/* Left Column — Message */}
+            <div className="space-y-5 lg:space-y-6">
+              {/* Oraicle Agent Badge — premium, with logo */}
+              <div className={`inline-flex items-center gap-2.5 pl-1.5 pr-4 py-1.5 rounded-full border ${
                 isDark
-                  ? 'bg-gradient-to-r from-teal-500/15 to-cyan-500/15 border-teal-500/40 text-teal-200 shadow-teal-500/10'
-                  : 'bg-gradient-to-r from-blue-50 to-cyan-50 border-blue-200/80 text-blue-700 shadow-blue-500/10'
-              }`}>
-                <span className={`text-lg sm:text-xl ${
-                  isDark ? 'text-teal-400' : 'text-blue-600'
-                }`}>⚡</span>
-                <span>Oraicle Agent for Retail Advertising</span>
-              </div>
-              
-              {/* Headline with Gradient */}
-              <div className="space-y-2">
-                <h1 className={`text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-black leading-tight tracking-tighter ${
-                  isDark
-                    ? 'text-white'
-                    : 'text-slate-900'
+                  ? 'bg-white/5 border-white/10 hover:border-white/20'
+                  : 'bg-slate-50 border-slate-200 hover:border-slate-300'
+              } transition-colors`}>
+                <img 
+                  src="https://d2xsxph8kpxj0f.cloudfront.net/310419663030543924/aKypLJ8kKMin8BXFMHjWjn/oraicle-favicon_6535f2f6.png" 
+                  alt="Oraicle" 
+                  className="w-7 h-7 rounded-full object-cover"
+                />
+                <span className={`text-sm font-medium ${
+                  isDark ? 'text-slate-300' : 'text-slate-600'
                 }`}>
-                  Create Retail Ads
+                  Oraicle Agent <span className={isDark ? 'text-slate-500' : 'text-slate-400'}>·</span> Promotional Ad Design
+                </span>
+              </div>
+
+              {/* Headline */}
+              <div>
+                <h1 className={`text-4xl sm:text-5xl lg:text-6xl font-extrabold tracking-tight leading-[1.1] ${
+                  isDark ? 'text-white' : 'text-slate-900'
+                }`}>
+                  Product ads,{' '}
+                  <span className="bg-gradient-to-r from-cyan-400 via-blue-500 to-blue-600 bg-clip-text text-transparent">
+                    designed by AI
+                  </span>
                 </h1>
-                <h2 className={`text-4xl sm:text-5xl md:text-6xl lg:text-7xl font-black leading-tight tracking-tighter bg-gradient-to-r ${
-                  isDark
-                    ? 'from-teal-400 via-cyan-400 to-blue-400 bg-clip-text text-transparent'
-                    : 'from-blue-600 via-cyan-500 to-teal-500 bg-clip-text text-transparent'
+                <p className={`mt-3 text-base lg:text-lg leading-relaxed max-w-lg ${
+                  isDark ? 'text-slate-400' : 'text-slate-500'
                 }`}>
-                  in Seconds
-                </h2>
+                  Generate retail and wholesale promotional ads from your product data. Upload, customize, export — no design skills needed.
+                </p>
               </div>
-              <p className={`text-base sm:text-lg leading-relaxed max-w-xl ${
-                isDark ? 'text-slate-400' : 'text-slate-600'
-              }`}>
-                Transform product data into stunning ads instantly. Powered by affordable AI infrastructure with LLM credits and specialized tools. Zero hallucinations, zero manual work.
-              </p>
-            </div>
 
-            {/* Features */}
-            <div className="space-y-2.5 md:space-y-3">
-              <div className="flex gap-3 items-start">
-                <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 mt-1 ${
-                  isDark
-                    ? 'bg-teal-500/20'
-                    : 'bg-blue-100'
-                }`}>
-                  <div className={`w-2 h-2 rounded-full ${
-                    isDark ? 'bg-teal-400' : 'bg-blue-600'
-                  }`} />
-                </div>
-                <span className={isDark ? 'text-slate-300 text-sm md:text-base' : 'text-slate-700 text-sm md:text-base'}>AI-powered copy generation — multiple AI agents create, refine, and optimize ad copy for maximum engagement</span>
+              {/* CTA */}
+              <div className="flex flex-wrap items-center gap-3">
+                {isAuthenticated ? (
+                  <Link href="/agents/retail-promo">
+                    <Button className={`gap-2 h-11 px-6 text-sm font-semibold rounded-xl ${
+                      isDark
+                        ? 'bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white shadow-lg shadow-cyan-500/25'
+                        : 'bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white shadow-lg shadow-blue-500/25'
+                    }`}>
+                      Launch Designer <ArrowRight className="w-4 h-4" />
+                    </Button>
+                  </Link>
+                ) : (
+                  <a href={getLoginUrl()}>
+                    <Button className={`gap-2 h-11 px-6 text-sm font-semibold rounded-xl ${
+                      isDark
+                        ? 'bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-white shadow-lg shadow-cyan-500/25'
+                        : 'bg-gradient-to-r from-blue-600 to-cyan-500 hover:from-blue-500 hover:to-cyan-400 text-white shadow-lg shadow-blue-500/25'
+                    }`}>
+                      Get Started Free <ArrowRight className="w-4 h-4" />
+                    </Button>
+                  </a>
+                )}
+                <span className={`text-xs ${isDark ? 'text-slate-500' : 'text-slate-400'}`}>
+                  Open-source LLMs · Up to 200x cheaper than big AI APIs
+                </span>
               </div>
-              <div className="flex gap-3 items-start">
-                <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 mt-1 ${
-                  isDark
-                    ? 'bg-teal-500/20'
-                    : 'bg-blue-100'
-                }`}>
-                  <div className={`w-2 h-2 rounded-full ${
-                    isDark ? 'bg-teal-400' : 'bg-blue-600'
-                  }`} />
-                </div>
-                <span className={isDark ? 'text-slate-300 text-sm md:text-base' : 'text-slate-700 text-sm md:text-base'}>Multiple ad layouts — hero banners, product grids, category showcases, and promotional templates</span>
-              </div>
-              <div className="flex gap-3 items-start">
-                <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 mt-1 ${
-                  isDark
-                    ? 'bg-teal-500/20'
-                    : 'bg-blue-100'
-                }`}>
-                  <div className={`w-2 h-2 rounded-full ${
-                    isDark ? 'bg-teal-400' : 'bg-blue-600'
-                  }`} />
-                </div>
-                <span className={isDark ? 'text-slate-300 text-sm md:text-base' : 'text-slate-700 text-sm md:text-base'}>Format presets — Instagram, Facebook, TikTok, Email, WhatsApp, Telegram, and more</span>
-              </div>
-              <div className="flex gap-3 items-start">
-                <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 mt-1 ${
-                  isDark
-                    ? 'bg-teal-500/20'
-                    : 'bg-blue-100'
-                }`}>
-                  <div className={`w-2 h-2 rounded-full ${
-                    isDark ? 'bg-teal-400' : 'bg-blue-600'
-                  }`} />
-                </div>
-                <span className={isDark ? 'text-slate-300 text-sm md:text-base' : 'text-slate-700 text-sm md:text-base'}>Product data import — upload manually, import from Excel/CSV, or connect via API</span>
-              </div>
-              <div className="flex gap-3 items-start">
-                <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 mt-1 ${
-                  isDark
-                    ? 'bg-teal-500/20'
-                    : 'bg-blue-100'
-                }`}>
-                  <div className={`w-2 h-2 rounded-full ${
-                    isDark ? 'bg-teal-400' : 'bg-blue-600'
-                  }`} />
-                </div>
-                <span className={isDark ? 'text-slate-300 text-sm md:text-base' : 'text-slate-700 text-sm md:text-base'}>Powered by Oraicle LLM credits — up to 95% lower costs than proprietary AI APIs</span>
-              </div>
-              <div className="flex gap-3 items-start">
-                <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 mt-1 ${
-                  isDark
-                    ? 'bg-teal-500/20'
-                    : 'bg-blue-100'
-                }`}>
-                  <div className={`w-2 h-2 rounded-full ${
-                    isDark ? 'bg-teal-400' : 'bg-blue-600'
-                  }`} />
-                </div>
-                <span className={isDark ? 'text-slate-300 text-sm md:text-base' : 'text-slate-700 text-sm md:text-base'}>Product photos — upload directly, auto-detect from URLs, or fetch via API integration</span>
-              </div>
-              <div className="flex gap-3 items-start">
-                <div className={`w-5 h-5 rounded-full flex items-center justify-center flex-shrink-0 mt-1 ${
-                  isDark
-                    ? 'bg-teal-500/20'
-                    : 'bg-blue-100'
-                }`}>
-                  <div className={`w-2 h-2 rounded-full ${
-                    isDark ? 'bg-teal-400' : 'bg-blue-600'
-                  }`} />
-                </div>
-                <span className={isDark ? 'text-slate-300 text-sm md:text-base' : 'text-slate-700 text-sm md:text-base'}>Real-time pricing with VAT — accurate calculations, zero hallucinations, instant updates</span>
+
+              {/* Feature Grid — compact 2x2 */}
+              <div className="grid grid-cols-2 gap-2.5 pt-1">
+                {features.map((f) => (
+                  <div key={f.label} className={`flex items-start gap-2.5 p-3 rounded-xl border transition-colors ${
+                    isDark
+                      ? 'bg-white/[0.03] border-white/[0.06] hover:border-white/10'
+                      : 'bg-slate-50/80 border-slate-100 hover:border-slate-200'
+                  }`}>
+                    <f.icon className={`w-4 h-4 mt-0.5 shrink-0 ${
+                      isDark ? 'text-cyan-400' : 'text-blue-500'
+                    }`} />
+                    <div>
+                      <div className={`text-sm font-medium leading-tight ${
+                        isDark ? 'text-slate-200' : 'text-slate-800'
+                      }`}>{f.label}</div>
+                      <div className={`text-xs mt-0.5 ${
+                        isDark ? 'text-slate-500' : 'text-slate-400'
+                      }`}>{f.desc}</div>
+                    </div>
+                  </div>
+                ))}
               </div>
             </div>
 
-            {/* CTA */}
-            <div className="pt-3 md:pt-4">
-              {isAuthenticated ? (
-                <Link href="/agents/retail-promo">
-                  <Button size="lg" className="bg-teal-500 hover:bg-teal-600 text-white gap-2 w-full sm:w-auto">
-                    Launch Designer <ArrowRight className="w-4 h-4" />
-                  </Button>
-                </Link>
-              ) : (
-                <a href={getLoginUrl()} className="block">
-                  <Button size="lg" className="bg-teal-500 hover:bg-teal-600 text-white gap-2 w-full sm:w-auto">
-                    Get Started <ArrowRight className="w-4 h-4" />
-                  </Button>
-                </a>
-              )}
-            </div>
-          </div>
-
-          {/* Right Column - Preview */}
-          <div className="relative hidden md:block">
-            <div className="absolute inset-0 bg-gradient-to-r from-teal-500/20 to-cyan-500/20 rounded-2xl blur-3xl" />
-            <div className={`relative border rounded-2xl p-8 backdrop-blur-sm ${
-              isDark
-                ? 'bg-slate-800/50 border-slate-700/50'
-                : 'bg-slate-100/50 border-slate-300/50'
-            }`}>
-              <div className="space-y-4">
-                <div className={`h-4 rounded w-3/4 ${
-                  isDark ? 'bg-slate-700' : 'bg-slate-300'
+            {/* Right Column — Product Preview */}
+            <div className="hidden lg:block">
+              <div className="relative">
+                {/* Glow */}
+                <div className={`absolute -inset-4 rounded-3xl blur-2xl ${
+                  isDark
+                    ? 'bg-gradient-to-br from-cyan-500/10 via-blue-500/10 to-transparent'
+                    : 'bg-gradient-to-br from-blue-500/5 via-cyan-500/5 to-transparent'
                 }`} />
-                <div className={`h-4 rounded w-1/2 ${
-                  isDark ? 'bg-slate-700' : 'bg-slate-300'
-                }`} />
-                <div className="mt-6 space-y-3">
-                  <div className={`h-32 rounded ${
-                    isDark ? 'bg-slate-700' : 'bg-slate-300'
-                  }`} />
-                  <div className={`h-32 rounded ${
-                    isDark ? 'bg-slate-700' : 'bg-slate-300'
-                  }`} />
+                {/* Card */}
+                <div className={`relative rounded-2xl border overflow-hidden ${
+                  isDark
+                    ? 'bg-slate-900/80 border-white/10'
+                    : 'bg-white border-slate-200 shadow-xl shadow-slate-200/50'
+                }`}>
+                  {/* Mock toolbar */}
+                  <div className={`flex items-center gap-2 px-4 py-2.5 border-b ${
+                    isDark ? 'border-white/5 bg-slate-900/50' : 'border-slate-100 bg-slate-50/50'
+                  }`}>
+                    <div className="flex gap-1.5">
+                      <div className="w-2.5 h-2.5 rounded-full bg-red-400/80" />
+                      <div className="w-2.5 h-2.5 rounded-full bg-yellow-400/80" />
+                      <div className="w-2.5 h-2.5 rounded-full bg-green-400/80" />
+                    </div>
+                    <div className={`flex-1 text-center text-xs ${
+                      isDark ? 'text-slate-500' : 'text-slate-400'
+                    }`}>Ad Designer</div>
+                  </div>
+                  {/* Mock content */}
+                  <div className="p-5 space-y-4">
+                    {/* Mock ad preview */}
+                    <div className={`rounded-xl p-4 ${
+                      isDark ? 'bg-white/[0.03]' : 'bg-slate-50'
+                    }`}>
+                      <div className="flex items-center gap-3 mb-3">
+                        <div className={`w-8 h-8 rounded-lg ${
+                          isDark ? 'bg-cyan-500/20' : 'bg-blue-100'
+                        }`} />
+                        <div className="flex-1 space-y-1.5">
+                          <div className={`h-2.5 rounded-full w-2/3 ${
+                            isDark ? 'bg-white/10' : 'bg-slate-200'
+                          }`} />
+                          <div className={`h-2 rounded-full w-1/3 ${
+                            isDark ? 'bg-white/5' : 'bg-slate-100'
+                          }`} />
+                        </div>
+                      </div>
+                      <div className={`h-28 rounded-lg mb-3 ${
+                        isDark
+                          ? 'bg-gradient-to-br from-cyan-500/10 to-blue-500/10'
+                          : 'bg-gradient-to-br from-blue-50 to-cyan-50'
+                      }`} />
+                      <div className="grid grid-cols-3 gap-2">
+                        {[1,2,3].map(i => (
+                          <div key={i} className={`h-16 rounded-lg ${
+                            isDark ? 'bg-white/[0.04]' : 'bg-slate-100'
+                          }`} />
+                        ))}
+                      </div>
+                    </div>
+                    {/* Mock action bar */}
+                    <div className="flex gap-2">
+                      <div className={`h-8 flex-1 rounded-lg ${
+                        isDark ? 'bg-cyan-500/20' : 'bg-blue-100'
+                      }`} />
+                      <div className={`h-8 w-20 rounded-lg ${
+                        isDark ? 'bg-white/5' : 'bg-slate-100'
+                      }`} />
+                    </div>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        </div>
-
-        {/* Stats */}
-        <div className={`grid sm:grid-cols-3 gap-6 sm:gap-8 mt-12 md:mt-16 pt-10 md:pt-16 border-t ${
-          isDark
-            ? 'border-slate-700/50'
-            : 'border-slate-300/50'
-        }`}>
-          <div className="text-center">
-            <div className={`text-3xl sm:text-4xl md:text-5xl font-bold ${
-              isDark ? 'text-teal-400' : 'text-blue-600'
-            }`}>28+</div>
-            <div className={`mt-2 text-sm sm:text-base ${
-              isDark ? 'text-slate-400' : 'text-slate-600'
-            }`}>Oraicle AI Models</div>
-          </div>
-          <div className="text-center">
-            <div className={`text-3xl sm:text-4xl md:text-5xl font-bold ${
-              isDark ? 'text-teal-400' : 'text-blue-600'
-            }`}>70%</div>
-            <div className={`mt-2 text-sm sm:text-base ${
-              isDark ? 'text-slate-400' : 'text-slate-600'
-            }`}>Cost Savings</div>
-          </div>
-          <div className="text-center">
-            <div className={`text-3xl sm:text-4xl md:text-5xl font-bold ${
-              isDark ? 'text-teal-400' : 'text-blue-600'
-            }`}>0%</div>
-            <div className={`mt-2 text-sm sm:text-base ${
-              isDark ? 'text-slate-400' : 'text-slate-600'
-            }`}>Manual Work</div>
           </div>
         </div>
       </main>
+
+      {/* Bottom Bar — Stats */}
+      <div className={`relative z-10 border-t shrink-0 ${
+        isDark ? 'border-white/5' : 'border-slate-100'
+      }`}>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-14 flex items-center justify-center gap-8 sm:gap-12">
+          {[
+            { value: "28+", label: "Open-Source Models" },
+            { value: "200x", label: "Cheaper than Big AI" },
+            { value: "0", label: "Manual Work" },
+          ].map((stat) => (
+            <div key={stat.label} className="flex items-center gap-2">
+              <span className={`text-sm sm:text-base font-bold ${
+                isDark ? 'text-cyan-400' : 'text-blue-600'
+              }`}>{stat.value}</span>
+              <span className={`text-xs ${
+                isDark ? 'text-slate-500' : 'text-slate-400'
+              }`}>{stat.label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
     </div>
   );
 }
