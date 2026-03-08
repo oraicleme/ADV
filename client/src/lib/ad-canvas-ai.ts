@@ -43,9 +43,9 @@ export interface CatalogSummary {
   totalProducts: number;
   /** Number currently selected for the ad. */
   selectedCount: number;
-  /** All categories present, sorted by count descending. Use EXACT names for catalog_filter. */
+  /** Top 10 categories present, sorted by count descending. Use EXACT names for catalog_filter. */
   categories: Array<{ name: string; count: number }>;
-  /** Up to 15 sample product names to show the AI naming conventions. */
+  /** Up to 10 sample product names to show the AI naming conventions. */
   sampleNames: string[];
 }
 

@@ -196,20 +196,31 @@ Analyze this request and canvas state. Provide ONE specific, actionable suggesti
     const response = await invokeLLM({
       messages,
       max_tokens: 1500,
+      response_format: {
+        type: "json_object",
+      },
     });
 
     const content = response.choices[0]?.message?.content;
     if (!content || typeof content !== "string") {
+      console.error(`[${agentName}] Empty response from LLM`);
       return null;
     }
 
     // Parse JSON response
-    const jsonMatch = content.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
+    let parsed;
+    try {
+      parsed = JSON.parse(content);
+    } catch (parseError) {
+      console.error(`[${agentName}] Failed to parse JSON response:`, content.substring(0, 200), parseError);
       return null;
     }
 
-    const parsed = JSON.parse(jsonMatch[0]);
+    // Validate required fields
+    if (!parsed.title || !parsed.description) {
+      console.error(`[${agentName}] Missing required fields in response:`, parsed);
+      return null;
+    }
 
     const suggestion = {
       id: `${agentName}-${Date.now()}`,
