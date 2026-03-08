@@ -10,6 +10,7 @@ import type { Message } from "../\_core/llm";
 import { buildRagContext, formatRagContextForPrompt, storeSuggestion } from "../db-rag";
 import { comprehensiveSearch } from "../db-rag-search";
 import { optimizeProductCatalog, formatOptimizedCatalogForPrompt, generateFallbackSuggestion } from "../lib/product-optimizer";
+import { selectProductsForAgent } from "../lib/select-products-for-agent";
 
 // Schema for canvas state (matches client-side AdCanvasState)
 const CanvasStateSchema = z.object({
@@ -53,6 +54,8 @@ const CanvasStateSchema = z.object({
     imageAnalysis: z.any().optional(),
   }),
   catalogSummary: z.any().optional(),
+  selectedProductIds: z.array(z.string()).optional(),
+  selectedProductNames: z.array(z.string()).optional(),
 });
 
 // Agent suggestion schema
@@ -182,15 +185,29 @@ async function callAgent(
       systemPrompt += `\n\n## User's Successful Past Suggestions${ragContext}\n\nUse these successful suggestions as inspiration and reference when making your recommendation.`;
     }
 
-    // Optimize product catalog if present to reduce token usage
+    // Use intelligent product selection with fuzzy search
     let catalogInfo = "";
     if (canvasState.catalogSummary && typeof canvasState.catalogSummary === "object") {
       const products = Array.isArray(canvasState.catalogSummary)
         ? canvasState.catalogSummary
         : canvasState.catalogSummary.products || [];
+      
       if (products.length > 0) {
-        const optimized = optimizeProductCatalog(products, 15);
-        catalogInfo = `\n\nProduct Catalog Context:\n${formatOptimizedCatalogForPrompt(optimized)}`;
+        let relevantProducts = products;
+        
+        if (canvasState.selectedProductNames && canvasState.selectedProductNames.length > 0) {
+          // Filter to only selected products
+          const selectedSet = new Set(canvasState.selectedProductNames);
+          relevantProducts = products.filter((p: any) => selectedSet.has(p.name));
+        } else if (userMessage.length > 0) {
+          // Use fuzzy search to find relevant products based on user message
+          const searchResult = selectProductsForAgent(products, userMessage);
+          relevantProducts = searchResult.selectedProducts || products;
+        }
+        
+        // Optimize to reduce token usage while keeping all relevant products
+        const optimized = optimizeProductCatalog(relevantProducts, Math.min(25, relevantProducts.length));
+        catalogInfo = `\n\nProduct Catalog Context (${optimized.topProducts.length} relevant products):\n${formatOptimizedCatalogForPrompt(optimized)}`;
       }
     }
 

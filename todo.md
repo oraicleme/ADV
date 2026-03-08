@@ -165,3 +165,17 @@
 - [ ] Test with real product data (185+ products)
 - [ ] Verify agent receives complete product list
 - [ ] Update agent to receive ALL relevant products (not just top 5)
+
+
+## Phase 20: Agent Integration & Product Reordering
+
+- [x] Wire selectProductsForAgent() into multi-agent router
+- [x] Update agents to receive ALL relevant products from fuzzy search
+- [x] Implement drag-and-drop product reordering in Products tab (using @dnd-kit)
+- [x] Add batch operations (Select All, Deselect All, Select by Category)
+- [x] Install @dnd-kit dependencies and create DraggableProductList component
+- [x] Create ProductBatchOperations component for bulk selection
+- [ ] Test agent suggestions with complete product context
+- [ ] Verify product reordering affects ad layout priority
+- [ ] Test batch operations with large product catalogs
+- [ ] Integrate DraggableProductList and ProductBatchOperations into ProductSelectionPanel
