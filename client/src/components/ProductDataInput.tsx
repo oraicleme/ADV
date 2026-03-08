@@ -12,6 +12,7 @@ import type { ProductItem } from '../lib/ad-templates';
 import type { SavedProductPhotoEntry } from '../lib/saved-product-photos';
 import { UrlJsonAdapter } from '../lib/product-source-adapter';
 import { fileToBase64DataUri } from '../lib/file-to-base64';
+import { filterProductsIntelligent } from '../lib/product-search';
 
 type Tab = 'excel' | 'paste' | 'manual' | 'url';
 
