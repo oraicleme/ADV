@@ -1,161 +1,178 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import {
-  getProductImages,
-  getProductImageUrl,
   isMobilelandImageEnabled,
-  parseImageUrlsFromProductPage,
+  getMobilelandMapFromLocalStorage,
+  getMobilelandMapTimestamp,
+  saveMobilelandMapToLocalStorage,
+  fetchMobilelandImageMap,
+  getProductImageUrl,
 } from './mobileland-images';
 
-describe('parseImageUrlsFromProductPage', () => {
-  const base = 'https://mobileland.me';
+const LS_KEY = 'mobileland_image_map_v1';
 
-  it('extracts og:image when present', () => {
-    const html = `<meta property="og:image" content="https://mobileland.me/media/catalog/product/x/y/xy.jpg" />`;
-    expect(parseImageUrlsFromProductPage(html, base)).toEqual([
-      'https://mobileland.me/media/catalog/product/x/y/xy.jpg',
-    ]);
+describe('isMobilelandImageEnabled', () => {
+  it('returns false when VITE_MOBILELAND_ENABLED is not set', () => {
+    const orig = import.meta.env.VITE_MOBILELAND_ENABLED;
+    try {
+      (import.meta.env as Record<string, string>).VITE_MOBILELAND_ENABLED = '';
+      expect(isMobilelandImageEnabled()).toBe(false);
+    } finally {
+      (import.meta.env as Record<string, string>).VITE_MOBILELAND_ENABLED = orig ?? '';
+    }
   });
 
-  it('extracts twitter:image when og:image is missing', () => {
-    const html = `<meta name="twitter:image" content="https://example.com/img.png" />`;
-    expect(parseImageUrlsFromProductPage(html, base)).toEqual(['https://example.com/img.png']);
-  });
-
-  it('prefers og:image over twitter:image', () => {
-    const html = `
-      <meta property="og:image" content="https://a.com/og.jpg" />
-      <meta name="twitter:image" content="https://b.com/tw.jpg" />
-    `;
-    expect(parseImageUrlsFromProductPage(html, base)).toEqual(['https://a.com/og.jpg']);
-  });
-
-  it('falls back to first img src when no meta image', () => {
-    const html = `<div><img src="/media/product.jpg" alt="Product" /></div>`;
-    expect(parseImageUrlsFromProductPage(html, base)).toEqual([
-      'https://mobileland.me/media/product.jpg',
-    ]);
-  });
-
-  it('makes protocol-relative img src absolute', () => {
-    const html = `<img src="//cdn.mobileland.me/x.jpg" />`;
-    expect(parseImageUrlsFromProductPage(html, base)).toEqual(['https://cdn.mobileland.me/x.jpg']);
-  });
-
-  it('returns empty array for empty or non-matching html', () => {
-    expect(parseImageUrlsFromProductPage('', base)).toEqual([]);
-    expect(parseImageUrlsFromProductPage('<div>No images</div>', base)).toEqual([]);
+  it('returns true when VITE_MOBILELAND_ENABLED is "1"', () => {
+    const orig = import.meta.env.VITE_MOBILELAND_ENABLED;
+    try {
+      (import.meta.env as Record<string, string>).VITE_MOBILELAND_ENABLED = '1';
+      expect(isMobilelandImageEnabled()).toBe(true);
+    } finally {
+      (import.meta.env as Record<string, string>).VITE_MOBILELAND_ENABLED = orig ?? '';
+    }
   });
 });
 
-describe('getProductImages', () => {
+describe('localStorage cache', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('getMobilelandMapFromLocalStorage returns undefined when empty', () => {
+    expect(getMobilelandMapFromLocalStorage()).toBeUndefined();
+  });
+
+  it('saveMobilelandMapToLocalStorage persists data and getMobilelandMapFromLocalStorage reads it back', () => {
+    const map: Record<string, string> = {};
+    for (let i = 0; i < 1200; i++) {
+      map[`SKU-${i}`] = `https://mobileland.me/media/catalog/product/img-${i}.jpg`;
+    }
+    saveMobilelandMapToLocalStorage(map);
+    const result = getMobilelandMapFromLocalStorage();
+    expect(result).toBeDefined();
+    expect(result?.['SKU-0']).toBe('https://mobileland.me/media/catalog/product/img-0.jpg');
+    expect(Object.keys(result ?? {}).length).toBe(1200);
+  });
+
+  it('getMobilelandMapFromLocalStorage returns undefined for small cache (<1000 entries)', () => {
+    const smallMap: Record<string, string> = {};
+    for (let i = 0; i < 100; i++) {
+      smallMap[`SKU-${i}`] = `https://example.com/img-${i}.jpg`;
+    }
+    saveMobilelandMapToLocalStorage(smallMap);
+    expect(getMobilelandMapFromLocalStorage()).toBeUndefined();
+  });
+
+  it('getMobilelandMapFromLocalStorage returns undefined for expired cache', () => {
+    const map: Record<string, string> = {};
+    for (let i = 0; i < 1200; i++) {
+      map[`SKU-${i}`] = `https://mobileland.me/img-${i}.jpg`;
+    }
+    const expired = { data: map, savedAt: Date.now() - 25 * 60 * 60 * 1000 };
+    localStorage.setItem(LS_KEY, JSON.stringify(expired));
+    expect(getMobilelandMapFromLocalStorage()).toBeUndefined();
+  });
+
+  it('getMobilelandMapTimestamp returns savedAt for valid cache', () => {
+    const map: Record<string, string> = {};
+    for (let i = 0; i < 1200; i++) {
+      map[`SKU-${i}`] = `https://mobileland.me/img-${i}.jpg`;
+    }
+    const before = Date.now();
+    saveMobilelandMapToLocalStorage(map);
+    const ts = getMobilelandMapTimestamp();
+    expect(ts).toBeDefined();
+    expect(ts!).toBeGreaterThanOrEqual(before);
+    expect(ts!).toBeLessThanOrEqual(Date.now());
+  });
+
+  it('getMobilelandMapTimestamp returns undefined when no cache', () => {
+    expect(getMobilelandMapTimestamp()).toBeUndefined();
+  });
+});
+
+describe('fetchMobilelandImageMap', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn());
   });
 
-  it('returns empty array when code is empty', async () => {
-    expect(await getProductImages('')).toEqual([]);
-    expect(await getProductImages('   ')).toEqual([]);
-    expect(fetch).not.toHaveBeenCalled();
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
-  it('returns empty array when base URL is not configured', async () => {
-    const origEnv = import.meta.env.PUBLIC_MOBILELAND_IMAGE_BASE;
-    try {
-      (import.meta.env as { PUBLIC_MOBILELAND_IMAGE_BASE?: string }).PUBLIC_MOBILELAND_IMAGE_BASE =
-        '';
-      expect(await getProductImages('1062776')).toEqual([]);
-      expect(fetch).not.toHaveBeenCalled();
-    } finally {
-      (import.meta.env as { PUBLIC_MOBILELAND_IMAGE_BASE?: string }).PUBLIC_MOBILELAND_IMAGE_BASE =
-        origEnv;
-    }
+  it('returns empty object when fetch fails', async () => {
+    vi.mocked(fetch).mockRejectedValueOnce(new Error('Network error'));
+    const result = await fetchMobilelandImageMap();
+    expect(result).toEqual({});
   });
 
-  it('returns image URL when fetch returns HTML with og:image', async () => {
-    const origEnv = import.meta.env.PUBLIC_MOBILELAND_IMAGE_BASE;
-    try {
-      (import.meta.env as { PUBLIC_MOBILELAND_IMAGE_BASE?: string }).PUBLIC_MOBILELAND_IMAGE_BASE =
-        'https://mobileland.me';
-      const html = `<meta property="og:image" content="https://mobileland.me/media/x.jpg" />`;
-      vi.mocked(fetch).mockResolvedValueOnce({
-        ok: true,
-        text: () => Promise.resolve(html),
-      } as Response);
-
-      const urls = await getProductImages('1062776');
-      expect(urls).toEqual(['https://mobileland.me/media/x.jpg']);
-      expect(fetch).toHaveBeenCalledWith(
-        'https://mobileland.me/1062776.html',
-        expect.objectContaining({ method: 'GET' }),
-      );
-    } finally {
-      (import.meta.env as { PUBLIC_MOBILELAND_IMAGE_BASE?: string }).PUBLIC_MOBILELAND_IMAGE_BASE =
-        origEnv;
-    }
+  it('returns empty object when response is not ok', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({ ok: false } as Response);
+    const result = await fetchMobilelandImageMap();
+    expect(result).toEqual({});
   });
 
-  it('returns empty array when response is not ok', async () => {
-    const origEnv = import.meta.env.PUBLIC_MOBILELAND_IMAGE_BASE;
-    try {
-      (import.meta.env as { PUBLIC_MOBILELAND_IMAGE_BASE?: string }).PUBLIC_MOBILELAND_IMAGE_BASE =
-        'https://mobileland.me';
-      vi.mocked(fetch).mockResolvedValueOnce({ ok: false } as Response);
-      expect(await getProductImages('1062776')).toEqual([]);
-    } finally {
-      (import.meta.env as { PUBLIC_MOBILELAND_IMAGE_BASE?: string }).PUBLIC_MOBILELAND_IMAGE_BASE =
-        origEnv;
-    }
+  it('returns map from tRPC v11 response (result.data.json)', async () => {
+    const map = { '1035914': 'https://mobileland.me/media/catalog/product/1/0/img.jpg' };
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ result: { data: { json: map } } }),
+    } as Response);
+    const result = await fetchMobilelandImageMap();
+    expect(result).toEqual(map);
   });
 
-  it('returns empty array when fetch throws', async () => {
-    const origEnv = import.meta.env.PUBLIC_MOBILELAND_IMAGE_BASE;
-    try {
-      (import.meta.env as { PUBLIC_MOBILELAND_IMAGE_BASE?: string }).PUBLIC_MOBILELAND_IMAGE_BASE =
-        'https://mobileland.me';
-      vi.mocked(fetch).mockRejectedValueOnce(new Error('Network error'));
-      expect(await getProductImages('1062776')).toEqual([]);
-    } finally {
-      (import.meta.env as { PUBLIC_MOBILELAND_IMAGE_BASE?: string }).PUBLIC_MOBILELAND_IMAGE_BASE =
-        origEnv;
-    }
+  it('returns map from legacy flat result.data', async () => {
+    const map = { '1035914': 'https://mobileland.me/media/catalog/product/1/0/img.jpg' };
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ result: { data: map } }),
+    } as Response);
+    const result = await fetchMobilelandImageMap();
+    expect(result).toEqual(map);
+  });
+
+  it('returns empty object when tRPC response has no data', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({}),
+    } as Response);
+    const result = await fetchMobilelandImageMap();
+    expect(result).toEqual({});
   });
 });
 
 describe('getProductImageUrl', () => {
-  it('returns first URL from getProductImages', async () => {
-    const origEnv = import.meta.env.PUBLIC_MOBILELAND_IMAGE_BASE;
-    try {
-      (import.meta.env as { PUBLIC_MOBILELAND_IMAGE_BASE?: string }).PUBLIC_MOBILELAND_IMAGE_BASE =
-        'https://mobileland.me';
-      vi.mocked(fetch).mockResolvedValueOnce({
-        ok: true,
-        text: () =>
-          Promise.resolve(
-            '<meta property="og:image" content="https://mobileland.me/first.jpg" />',
-          ),
-      } as Response);
-      expect(await getProductImageUrl('1062776')).toBe('https://mobileland.me/first.jpg');
-    } finally {
-      (import.meta.env as { PUBLIC_MOBILELAND_IMAGE_BASE?: string }).PUBLIC_MOBILELAND_IMAGE_BASE =
-        origEnv;
-    }
+  beforeEach(() => {
+    vi.stubGlobal('fetch', vi.fn());
   });
 
-  it('returns undefined when no images', async () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('returns undefined when code is empty', async () => {
     expect(await getProductImageUrl('')).toBeUndefined();
+    expect(await getProductImageUrl('   ')).toBeUndefined();
   });
-});
 
-describe('isMobilelandImageEnabled', () => {
-  it('returns false when PUBLIC_MOBILELAND_IMAGE_BASE is not set', () => {
-    const orig = import.meta.env.PUBLIC_MOBILELAND_IMAGE_BASE;
-    try {
-      (import.meta.env as { PUBLIC_MOBILELAND_IMAGE_BASE?: string }).PUBLIC_MOBILELAND_IMAGE_BASE =
-        '';
-      expect(isMobilelandImageEnabled()).toBe(false);
-    } finally {
-      (import.meta.env as { PUBLIC_MOBILELAND_IMAGE_BASE?: string }).PUBLIC_MOBILELAND_IMAGE_BASE =
-        orig;
-    }
+  it('returns image URL from map when code is found', async () => {
+    const url = 'https://mobileland.me/media/catalog/product/1/0/img.jpg';
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({ result: { data: { json: { '1035914': url } } } }),
+    } as Response);
+    const result = await getProductImageUrl('1035914');
+    expect(result).toBe(url);
+  });
+
+  it('returns undefined when code is not in map', async () => {
+    vi.mocked(fetch).mockResolvedValueOnce({
+      ok: true,
+      json: () => Promise.resolve({
+        result: { data: { json: { other: 'https://example.com/x.jpg' } } },
+      }),
+    } as Response);
+    const result = await getProductImageUrl('missing-sku');
+    expect(result).toBeUndefined();
   });
 });

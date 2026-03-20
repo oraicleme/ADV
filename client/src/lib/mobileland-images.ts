@@ -1,94 +1,126 @@
 /**
- * Product images from mobileland.me — shared module for web and field app.
- * Given a product identifier (code), fetches image URL(s) from the mobileland.me website.
- * Configure via PUBLIC_MOBILELAND_IMAGE_BASE (e.g. https://mobileland.me).
+ * Product images from mobileland.me — client-side module.
+ * Fetches SKU → image URL map via the tRPC catalog.getMobilelandImages endpoint,
+ * which signs requests with OAuth 1.0 server-side.
+ *
+ * Set VITE_MOBILELAND_ENABLED=1 in .env.local to enable.
+ *
+ * Caching strategy:
+ *   - Server:      in-memory, 5-minute TTL  (avoids hammering Magento API)
+ *   - Client:      localStorage, 24-hour TTL (survives page reloads)
+ *   - React Query: in-memory, 24-hour staleTime (no refetch within the same session)
+ *   - Image files: browser HTTP cache (standard browser behaviour, no extra work)
  */
 
-const DEFAULT_BASE = 'https://mobileland.me';
+const LS_KEY = 'mobileland_image_map_v1';
+const LS_TTL_MS = 24 * 60 * 60 * 1000; // 24 hours
 
-function getBaseUrl(): string | undefined {
-  if (typeof import.meta === 'undefined' || !import.meta.env) return undefined;
-  const base = import.meta.env.PUBLIC_MOBILELAND_IMAGE_BASE as string | undefined;
-  const trimmed = typeof base === 'string' ? base.trim() : '';
-  return trimmed || undefined;
+interface LocalStorageEntry {
+  data: Record<string, string>;
+  savedAt: number;
 }
 
 /**
- * Whether mobileland image fetching is enabled (base URL configured).
+ * Whether Mobileland image fetching is enabled.
+ * Reads the VITE_MOBILELAND_ENABLED build-time flag.
  */
 export function isMobilelandImageEnabled(): boolean {
-  return !!getBaseUrl();
+  if (typeof import.meta === 'undefined' || !import.meta.env) return false;
+  return import.meta.env.VITE_MOBILELAND_ENABLED === '1';
 }
 
 /**
- * Fetch product page HTML and extract image URL(s).
- * Uses og:image when present, otherwise looks for first product image in gallery.
- *
- * @param code - Product identifier (e.g. "1062776" or "t28468")
- * @returns Promise of image URL(s); empty array if disabled, not found, or on error.
+ * A cache with fewer entries than this is considered stale/incomplete
+ * (e.g. cached before the fields fix — only first page of ~186 items).
+ * The full Mobileland catalog has 34k+ products; anything below 1000 entries
+ * is almost certainly a partial first-page cache — force a fresh fetch.
  */
-export async function getProductImages(code: string): Promise<string[]> {
-  const base = getBaseUrl();
-  if (!base || !code || !String(code).trim()) return [];
+const MIN_EXPECTED_ENTRIES = 1000;
 
-  const productPageUrl = `${base.replace(/\/$/, '')}/${String(code).trim()}.html`;
-
-  let html: string;
+/**
+ * Read the cached SKU→URL map from localStorage.
+ * Returns the data if present, not expired, and large enough to be complete.
+ */
+export function getMobilelandMapFromLocalStorage(): Record<string, string> | undefined {
   try {
-    const res = await fetch(productPageUrl, {
-      method: 'GET',
-      headers: { Accept: 'text/html' },
-      signal: AbortSignal.timeout(10_000),
-    });
-    if (!res.ok) return [];
-    html = await res.text();
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return undefined;
+    const entry = JSON.parse(raw) as LocalStorageEntry;
+    if (Date.now() - entry.savedAt > LS_TTL_MS) {
+      localStorage.removeItem(LS_KEY);
+      return undefined;
+    }
+    // Invalidate suspiciously small caches — likely from before full pagination
+    if (Object.keys(entry.data).length < MIN_EXPECTED_ENTRIES) {
+      localStorage.removeItem(LS_KEY);
+      return undefined;
+    }
+    return entry.data;
   } catch {
-    return [];
+    return undefined;
   }
-
-  return parseImageUrlsFromProductPage(html, base);
 }
 
 /**
- * Parse HTML for og:image or first product image. Exported for tests.
+ * Timestamp of the cached entry, for React Query's initialDataUpdatedAt.
+ * Returns undefined when no valid cache exists.
  */
-export function parseImageUrlsFromProductPage(html: string, baseUrl: string): string[] {
-  const urls: string[] = [];
-
-  // 1. og:image (absolute URL)
-  const ogMatch = html.match(/<meta\s+property=["']og:image["']\s+content=["']([^"']+)["']/i);
-  if (ogMatch?.[1]) {
-    const url = ogMatch[1].trim();
-    if (url.startsWith('http')) urls.push(url);
+export function getMobilelandMapTimestamp(): number | undefined {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (!raw) return undefined;
+    const entry = JSON.parse(raw) as LocalStorageEntry;
+    if (Date.now() - entry.savedAt > LS_TTL_MS) return undefined;
+    return entry.savedAt;
+  } catch {
+    return undefined;
   }
-
-  // 2. twitter:image
-  if (urls.length === 0) {
-    const twMatch = html.match(/<meta\s+name=["']twitter:image["']\s+content=["']([^"']+)["']/i);
-    if (twMatch?.[1]) {
-      const url = twMatch[1].trim();
-      if (url.startsWith('http')) urls.push(url);
-    }
-  }
-
-  // 3. First img in common product gallery selectors (relative -> absolute)
-  if (urls.length === 0) {
-    const imgMatch = html.match(/<img[^>]+src=["']([^"']+)["']/i);
-    if (imgMatch?.[1]) {
-      let url = imgMatch[1].trim();
-      if (url.startsWith('//')) url = `https:${url}`;
-      else if (url.startsWith('/')) url = `${baseUrl.replace(/\/$/, '')}${url}`;
-      if (url.startsWith('http')) urls.push(url);
-    }
-  }
-
-  return urls;
 }
 
 /**
- * Get the first product image URL for a code. Convenience for single-image use.
+ * Persist a fresh SKU→URL map to localStorage with the current timestamp.
+ */
+export function saveMobilelandMapToLocalStorage(data: Record<string, string>): void {
+  try {
+    const entry: LocalStorageEntry = { data, savedAt: Date.now() };
+    localStorage.setItem(LS_KEY, JSON.stringify(entry));
+  } catch {
+    // localStorage quota exceeded or unavailable — ignore silently
+  }
+}
+
+/**
+ * Fetch the full SKU → image URL map from the server via tRPC.
+ * Prefer using the tRPC React hook (trpc.catalog.getMobilelandImages.useQuery)
+ * in components to avoid redundant fetches.
+ */
+export async function fetchMobilelandImageMap(): Promise<Record<string, string>> {
+  try {
+    const res = await fetch('/api/trpc/catalog.getMobilelandImages', {
+      method: 'GET',
+      credentials: 'include',
+      headers: { Accept: 'application/json' },
+    });
+    if (!res.ok) return {};
+    const json = await res.json() as {
+      result?: { data?: Record<string, string> | { json?: Record<string, string> } };
+    };
+    const data = json?.result?.data;
+    if (!data || typeof data !== 'object') return {};
+    if ('json' in data && data.json && typeof data.json === 'object') {
+      return data.json;
+    }
+    return data as Record<string, string>;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Get the image URL for a single product code (SKU).
  */
 export async function getProductImageUrl(code: string): Promise<string | undefined> {
-  const urls = await getProductImages(code);
-  return urls[0];
+  if (!code?.trim()) return undefined;
+  const map = await fetchMobilelandImageMap();
+  return map[code.trim()];
 }
