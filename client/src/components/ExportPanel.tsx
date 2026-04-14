@@ -1,21 +1,39 @@
 /**
  * Export Panel - Provides UI for exporting ads as PNG, JPEG, or HTML
+ * STORY-127: When htmlPerPage is provided, exports one file per page (multi-page export).
  */
 
 import React, { useState } from 'react';
 import { Download, FileImage, FileText, Loader2, AlertCircle } from 'lucide-react';
 import { exportAdAsPNG, exportAdAsJPEG, exportAdAsHTML } from '../lib/export-utils';
+import { exportAdAsImage, downloadBlob } from '../lib/export-image';
+import KlingCreativeSection, { type KlingCanvasContext } from './KlingCreativeSection';
 
 interface ExportPanelProps {
   canvasElementId: string;
   adName?: string;
   disabled?: boolean;
+  /** STORY-127: When set, export one asset per page (PNG/JPEG/HTML). */
+  htmlPerPage?: string[];
+  /** Dimensions for multi-page image export. */
+  exportFormat?: { width: number; height: number };
+  /** STORY-180: Canvas snapshot for Kling (optional; server builds prompt). */
+  klingCanvas?: KlingCanvasContext;
 }
 
-export default function ExportPanel({ canvasElementId, adName = 'ad-creative', disabled = false }: ExportPanelProps) {
+export default function ExportPanel({
+  canvasElementId,
+  adName = 'ad-creative',
+  disabled = false,
+  htmlPerPage,
+  exportFormat,
+  klingCanvas,
+}: ExportPanelProps) {
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
   const [exportSuccess, setExportSuccess] = useState(false);
+
+  const useMultiPage = htmlPerPage && htmlPerPage.length > 1 && exportFormat;
 
   const handleExport = async (format: 'png' | 'jpeg' | 'html') => {
     setIsExporting(true);
@@ -23,18 +41,42 @@ export default function ExportPanel({ canvasElementId, adName = 'ad-creative', d
     setExportSuccess(false);
 
     try {
-      const filename = `${adName}.${format}`;
-
-      switch (format) {
-        case 'png':
-          await exportAdAsPNG(canvasElementId, { filename, scale: 2 });
-          break;
-        case 'jpeg':
-          await exportAdAsJPEG(canvasElementId, { filename, quality: 0.85, scale: 2 });
-          break;
-        case 'html':
-          await exportAdAsHTML(canvasElementId, { filename });
-          break;
+      if (useMultiPage) {
+        const { width, height } = exportFormat!;
+        for (let i = 0; i < htmlPerPage!.length; i++) {
+          const html = htmlPerPage![i]!;
+          const pageNum = i + 1;
+          const base = `${adName}-page-${pageNum}`;
+          if (format === 'html') {
+            const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+            downloadBlob(blob, `${base}.html`);
+          } else {
+            const blob = await exportAdAsImage({
+              html,
+              width,
+              height,
+              format,
+              quality: format === 'jpeg' ? 0.85 : undefined,
+            });
+            downloadBlob(blob, `${base}.${format === 'jpeg' ? 'jpg' : 'png'}`);
+          }
+          if (i < htmlPerPage!.length - 1) {
+            await new Promise((r) => setTimeout(r, 300));
+          }
+        }
+      } else {
+        const filename = `${adName}.${format === 'jpeg' ? 'jpg' : format}`;
+        switch (format) {
+          case 'png':
+            await exportAdAsPNG(canvasElementId, { filename, scale: 2 });
+            break;
+          case 'jpeg':
+            await exportAdAsJPEG(canvasElementId, { filename, quality: 0.85, scale: 2 });
+            break;
+          case 'html':
+            await exportAdAsHTML(canvasElementId, { filename: `${adName}.html` });
+            break;
+        }
       }
 
       setExportSuccess(true);
@@ -136,8 +178,12 @@ export default function ExportPanel({ canvasElementId, adName = 'ad-creative', d
       </div>
 
       <p className="mt-2 text-[10px] text-gray-400">
-        Download your ad as an image or HTML file for sharing and publishing.
+        {useMultiPage
+          ? `${htmlPerPage!.length} pages — each export downloads ${htmlPerPage!.length} files (one per page).`
+          : 'Download your ad as an image or HTML file for sharing and publishing.'}
       </p>
+
+      {klingCanvas ? <KlingCreativeSection context={klingCanvas} /> : null}
     </div>
   );
 }

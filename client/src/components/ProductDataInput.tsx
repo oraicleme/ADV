@@ -1,7 +1,9 @@
 import React, { useState, useRef, useMemo, useCallback, useEffect } from 'react';
 import { FileSpreadsheet, ClipboardPaste, PenLine, Upload, AlertCircle, CheckCircle2, Globe, Info, ImagePlus } from 'lucide-react';
+import { trpc } from '@/lib/trpc';
 import { parseText } from '../lib/text-parser';
 import { parseExcelFile } from '../lib/excel-parser';
+import { filterImportedCatalogByActiveSearch } from '../lib/product-selection-panel-filters';
 import { checkFileSize, formatFileSize, formatParseSummary } from '../lib/parse-utils';
 import type { ParseStats } from '../lib/parse-utils';
 import { isMobilelandImageEnabled } from '../lib/mobileland-images';
@@ -12,7 +14,20 @@ import type { ProductItem } from '../lib/ad-templates';
 import type { SavedProductPhotoEntry } from '../lib/saved-product-photos';
 import { UrlJsonAdapter } from '../lib/product-source-adapter';
 import { fileToBase64DataUri } from '../lib/file-to-base64';
-import { filterProductsIntelligent } from '../lib/product-search';
+import {
+  buildSearchIndex,
+  queryProductIndicesWithManualFallback,
+  type ProductSearchIndex,
+} from '../lib/product-index';
+import { getCatalogMinScoreForQuery, type SearchSource } from '../lib/product-search-min-score';
+import {
+  SEARCH_SETTINGS_CHANGED_EVENT,
+  SEARCH_SETTINGS_STORAGE_KEY,
+} from '../lib/search-settings-storage';
+import { applySearchRulesToIndices } from '../lib/apply-search-rules';
+import { normalizeSearchQueryForPipeline } from '../lib/normalize-search-query';
+import { SEARCH_RULES_CHANGED_EVENT, readSearchRules } from '../lib/search-rules-storage';
+import { SEARCH_RULES_RAG_LITE_CHANGED_EVENT } from '../lib/search-rules-rag-lite-settings';
 
 type Tab = 'excel' | 'paste' | 'manual' | 'url';
 
@@ -51,6 +66,25 @@ interface ProductDataInputProps {
   isSavedProductPhotosFull?: boolean;
   /** STORY-55: called when user assigns a photo directly to a product row via the picker. */
   onAssignProductPhoto?: (index: number, dataUri: string) => void;
+  /**
+   * STORY-122 P-2: shared MiniSearch index built by the parent (AgentChat).
+   * When provided, this component skips rebuilding the index, halving memory and CPU cost.
+   * When absent (standalone use), the component builds its own index as before.
+   */
+  sharedSearchIndex?: React.RefObject<ProductSearchIndex | null>;
+  /**
+   * STORY-124: When using sharedSearchIndex, pass the parent's indexVersion so
+   * visibleIndices recomputes when the index is rebuilt (e.g. after catalog load).
+   */
+  searchIndexVersion?: number;
+  /**
+   * STORY-181: Lift search string to parent so Products tab shares the same query + MiniSearch alignment.
+   */
+  catalogSearchQuery?: string;
+  onCatalogSearchQueryChange?: (q: string) => void;
+  /** STORY-200: explicit thumbs vs last agent catalog_filter query (parent hashes in telemetry). */
+  searchFeedbackEnabled?: boolean;
+  onSearchFeedbackExplicit?: (index: number, relevant: boolean) => void;
 }
 
 export default function ProductDataInput({
@@ -70,6 +104,12 @@ export default function ProductDataInput({
   onRemoveSavedPhoto,
   isSavedProductPhotosFull = false,
   onAssignProductPhoto,
+  sharedSearchIndex,
+  searchIndexVersion = 0,
+  catalogSearchQuery,
+  onCatalogSearchQueryChange,
+  searchFeedbackEnabled = false,
+  onSearchFeedbackExplicit,
 }: ProductDataInputProps) {
   const [activeTab, setActiveTab] = useState<Tab>('excel');
   const [pasteText, setPasteText] = useState('');
@@ -91,16 +131,63 @@ export default function ProductDataInput({
   const [urlInput, setUrlInput] = useState('');
   const [urlLoading, setUrlLoading] = useState(false);
 
-  const [searchInputValue, setSearchInputValue] = useState('');
+  const [internalSearchInput, setInternalSearchInput] = useState('');
+  const isSearchControlled =
+    catalogSearchQuery !== undefined && onCatalogSearchQueryChange !== undefined;
+  const searchInputValue = isSearchControlled ? catalogSearchQuery : internalSearchInput;
+  const setSearchInputValue = useCallback(
+    (v: string) => {
+      if (isSearchControlled) onCatalogSearchQueryChange!(v);
+      else setInternalSearchInput(v);
+    },
+    [isSearchControlled, onCatalogSearchQueryChange],
+  );
   const [searchQuery, setSearchQuery] = useState('');
+  const [searchSource, setSearchSource] = useState<SearchSource>('manual');
+  /** Bumps when Workspace Settings → Search thresholds change so visibleIndices recomputes. */
+  const [searchSettingsEpoch, setSearchSettingsEpoch] = useState(0);
+  /** STORY-196: bumps when search exclude/downrank rules change. */
+  const [searchRulesEpoch, setSearchRulesEpoch] = useState(0);
   const [activeFilters, setActiveFilters] = useState<Record<string, Set<string>>>({});
   const [filtersExpanded, setFiltersExpanded] = useState(true);
+  const [aiSearchLoading, setAiSearchLoading] = useState(false);
+  const interpretSearch = trpc.catalog.interpretProductSearch.useMutation();
+  // P-2: use the shared index from parent when available; build locally only when standalone.
+  const localSearchIndexRef = useRef<ProductSearchIndex | null>(null);
+  const searchIndexRef = sharedSearchIndex ?? localSearchIndexRef;
 
   const DEBOUNCE_MS = 200;
   useEffect(() => {
     const t = setTimeout(() => setSearchQuery(searchInputValue), DEBOUNCE_MS);
     return () => clearTimeout(t);
   }, [searchInputValue]);
+
+  useEffect(() => {
+    const bump = () => setSearchSettingsEpoch((n) => n + 1);
+    const bumpRules = () => setSearchRulesEpoch((n) => n + 1);
+    window.addEventListener(SEARCH_SETTINGS_CHANGED_EVENT, bump);
+    window.addEventListener(SEARCH_RULES_CHANGED_EVENT, bumpRules);
+    window.addEventListener(SEARCH_RULES_RAG_LITE_CHANGED_EVENT, bumpRules);
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === SEARCH_SETTINGS_STORAGE_KEY) bump();
+    };
+    window.addEventListener('storage', onStorage);
+    return () => {
+      window.removeEventListener(SEARCH_SETTINGS_CHANGED_EVENT, bump);
+      window.removeEventListener(SEARCH_RULES_CHANGED_EVENT, bumpRules);
+      window.removeEventListener(SEARCH_RULES_RAG_LITE_CHANGED_EVENT, bumpRules);
+      window.removeEventListener('storage', onStorage);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (sharedSearchIndex !== undefined) return; // parent owns the index — no local rebuild
+    if (products.length === 0) {
+      localSearchIndexRef.current = null;
+    } else {
+      localSearchIndexRef.current = buildSearchIndex(products);
+    }
+  }, [products, sharedSearchIndex]);
 
   const showSelection = selectedIndices !== undefined && onSelectionChange !== undefined;
 
@@ -135,18 +222,24 @@ export default function ProductDataInput({
 
   const categoryCounts = useMemo(() => classificationCounts.category ?? {}, [classificationCounts]);
 
+  // STORY-124: when using shared index, depend on searchIndexVersion so we
+  // recompute when the parent's index is rebuilt (ref update doesn't trigger re-render).
   const visibleIndices = useMemo(() => {
-    const q = searchQuery.toLowerCase().trim();
+    const q = normalizeSearchQueryForPipeline(searchQuery);
     let filtered = products.map((_, i) => i);
 
-    // Apply search query with intelligent fuzzy matching
-    if (q) {
-      const searchResults = filterProductsIntelligent(products, q, {
-        searchFields: ['name', 'code'],
-        fuzzyMatch: true,
-        groupByVariant: false,
-      });
-      filtered = searchResults;
+    if (q && searchIndexRef.current) {
+      // Q-1: minScore from settings; STORY-182: fallback when strict threshold yields 0 hits.
+      const minScore = getCatalogMinScoreForQuery(q, searchSource);
+      let idxs = queryProductIndicesWithManualFallback(
+        searchIndexRef.current,
+        products,
+        q,
+        minScore,
+      );
+      // STORY-196: post-process exclude / downrank rules (same query normalization as Settings rules).
+      idxs = applySearchRulesToIndices(q, idxs, products, readSearchRules());
+      filtered = idxs;
     }
 
     // Apply classification filters
@@ -162,7 +255,15 @@ export default function ProductDataInput({
     });
 
     return filtered;
-  }, [products, searchQuery, activeFilters]);
+  }, [
+    products,
+    searchQuery,
+    searchSource,
+    activeFilters,
+    sharedSearchIndex !== undefined ? searchIndexVersion : 0,
+    searchSettingsEpoch,
+    searchRulesEpoch,
+  ]);
 
   useEffect(() => {
     onVisibleIndicesChange?.(visibleIndices);
@@ -196,6 +297,48 @@ export default function ProductDataInput({
   const handleFiltersChange = useCallback((dimension: string, values: Set<string>) => {
     setActiveFilters((prev) => ({ ...prev, [dimension]: values }));
   }, []);
+
+  const handleAiSearch = useCallback(
+    async (query: string) => {
+      const qn = normalizeSearchQueryForPipeline(query);
+      if (!qn || products.length === 0) return;
+      setSearchSource('ai');
+      setAiSearchLoading(true);
+      try {
+        const catCounts = classificationCounts.category ?? {};
+        const categories = Object.entries(catCounts).map(([name, count]) => ({ name, count: count ?? 0 }));
+        // 5 names per category up to 60 total — same strategy as AgentChat.catalogSummary.
+        // Ensures the LLM sees vocabulary from all parts of the catalog, not just the first 40 rows.
+        const sampleNames: string[] = [];
+        const seenCatCount = new Map<string, number>();
+        for (const p of products) {
+          if (sampleNames.length >= 60) break;
+          const cat = p.category ?? '';
+          const n = seenCatCount.get(cat) ?? 0;
+          if (n < 5) {
+            const name = p.name?.trim() ?? '';
+            if (name) sampleNames.push(name);
+            seenCatCount.set(cat, n + 1);
+          }
+        }
+        const result = await interpretSearch.mutateAsync({
+          query: qn,
+          categories,
+          sampleNames,
+        });
+        setSearchInputValue(result.nameContains ?? '');
+        handleFiltersChange(
+          'category',
+          result.category ? new Set([result.category]) : new Set(),
+        );
+      } catch {
+        // Keep current search on error
+      } finally {
+        setAiSearchLoading(false);
+      }
+    },
+    [products, classificationCounts.category, interpretSearch, handleFiltersChange, setSearchInputValue],
+  );
 
   const handleSelectOnlyDimensionValue = useCallback(
     (dimension: string, value: string) => {
@@ -280,12 +423,19 @@ export default function ProductDataInput({
         eventCallbacks?.onExcelUploadFailure?.(result.errors.join(' '));
       }
       if (result.products.length > 0) {
-        onProductsChange(result.products);
-        if (onSelectionChange) {
-          onSelectionChange(new Set(result.products.map((_, i) => i)));
+        const q = searchInputValue.trim();
+        const next =
+          q ? filterImportedCatalogByActiveSearch(result.products, searchInputValue) : result.products;
+        if (q && next.length === 0) {
+          setError(
+            `No products match your current search. Clear the search box or adjust the file — ${result.products.length} row(s) were in the file.`,
+          );
+          eventCallbacks?.onExcelUploadFailure?.('search filter: no matches');
+        } else {
+          onProductsChange(next);
+          showSummary(result.stats);
+          eventCallbacks?.onExcelUploadSuccess?.(next.length);
         }
-        showSummary(result.stats);
-        eventCallbacks?.onExcelUploadSuccess?.(result.products.length);
       }
     } catch (err) {
       const msg = 'Failed to parse the file. Please check the format and try again.';
@@ -308,12 +458,18 @@ export default function ProductDataInput({
       setError('Could not parse any products from the pasted text.');
       return;
     }
-    onProductsChange(result.products);
-    if (onSelectionChange) {
-      onSelectionChange(new Set(result.products.map((_, i) => i)));
+    const q = searchInputValue.trim();
+    const next =
+      q ? filterImportedCatalogByActiveSearch(result.products, searchInputValue) : result.products;
+    if (q && next.length === 0) {
+      setError(
+        `No products match your current search. Clear the search box — ${result.products.length} product(s) were parsed.`,
+      );
+      return;
     }
+    onProductsChange(next);
     showSummary(result.stats);
-    eventCallbacks?.onPasteProducts?.(result.products.length);
+    eventCallbacks?.onPasteProducts?.(next.length);
     setPasteText('');
   };
 
@@ -455,6 +611,11 @@ export default function ProductDataInput({
               onChange={(e) => handleExcelUpload(e.target.files)}
             />
           </label>
+          {searchInputValue.trim() ? (
+            <p className="text-[11px] text-amber-400/90" data-testid="excel-search-filter-hint">
+              Search is active — only spreadsheet rows that match the search box are added to the catalog.
+            </p>
+          ) : null}
           {isLoading && (
             <div data-testid="parsing-status" className="mt-2 text-xs text-gray-500">
               {loadingMessage}
@@ -713,7 +874,10 @@ export default function ProductDataInput({
             {showSelection && (
               <ProductFilter
               searchQuery={searchInputValue}
-              onSearchChange={setSearchInputValue}
+              onSearchChange={(v) => {
+                setSearchSource('manual');
+                setSearchInputValue(v);
+              }}
               classificationCounts={Object.keys(classificationCounts).length > 0 ? classificationCounts : undefined}
               activeFilters={activeFilters}
               onFiltersChange={handleFiltersChange}
@@ -732,9 +896,33 @@ export default function ProductDataInput({
               categoryCounts={Object.keys(categoryCounts).length > 0 ? categoryCounts : undefined}
               activeCategories={new Set()}
               onCategoriesChange={() => {}}
+              onAiSearch={handleAiSearch}
+              aiSearchLoading={aiSearchLoading}
             />
             )}
           </div>
+
+          {visibleIndices.length === 0 && searchQuery.trim() && (
+            <div
+              data-testid="search-empty-state"
+              className="flex flex-col items-center gap-3 rounded-lg border border-white/10 bg-white/[0.03] px-4 py-6 text-center text-sm text-gray-500"
+            >
+              <span>No products match &quot;{searchQuery.trim()}&quot;.</span>
+              {!aiSearchLoading ? (
+                <button
+                  type="button"
+                  data-testid="search-empty-ai-cta"
+                  onClick={() => handleAiSearch(searchQuery.trim())}
+                  className="flex items-center gap-1.5 rounded-lg border border-orange-500/30 bg-orange-500/10 px-3 py-1.5 text-xs font-medium text-orange-400 transition hover:bg-orange-500/20"
+                >
+                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3l1.912 5.813a2 2 0 001.272 1.272L21 12l-5.816 1.912a2 2 0 00-1.272 1.272L12 21l-1.912-5.816a2 2 0 00-1.272-1.272L3 12l5.816-1.912a2 2 0 001.272-1.272L12 3z"/></svg>
+                  Search with AI
+                </button>
+              ) : (
+                <span className="text-xs text-orange-400">AI is searching…</span>
+              )}
+            </div>
+          )}
 
           <ProductTable
             products={products}
@@ -746,6 +934,8 @@ export default function ProductDataInput({
             visibleIndices={visibleIndices}
             locale={locale}
             savedProductPhotos={savedProductPhotos}
+            searchFeedbackEnabled={searchFeedbackEnabled}
+            onSearchFeedbackExplicit={onSearchFeedbackExplicit}
             onAssignPhoto={onAssignProductPhoto}
             onUploadPhoto={async (index: number, file: File) => {
               try {

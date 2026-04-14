@@ -224,6 +224,8 @@ export function validateBlockChange(
         return { valid: false, error: `"${property}" must be >= ${propSpec.min}, got ${n}` };
       }
       if (propSpec.max != null && n > propSpec.max) {
+        // STORY-100: accept over-max for imageHeight so coerceValue can clamp (AI often returns 400+ for story)
+        if (blockType === 'products' && property === 'imageHeight') return { valid: true };
         return { valid: false, error: `"${property}" must be <= ${propSpec.max}, got ${n}` };
       }
       return { valid: true };
@@ -262,11 +264,28 @@ export function coerceValue(blockType: BlockType, property: string, value: unkno
   const propSpec = AD_BLOCK_MANIFEST[blockType]?.properties[property];
   if (!propSpec) return value;
   switch (propSpec.type) {
-    case 'number':
+    case 'number': {
+      const n = typeof value === 'string' ? Number(value) : value;
+      const num = typeof n === 'number' && Number.isFinite(n) ? n : value;
+      if (typeof num === 'number' && propSpec.max != null && num > propSpec.max) {
+        return propSpec.max; // STORY-100: clamp so agent values like imageHeight 460 → 300
+      }
+      if (typeof num === 'number' && propSpec.min != null && num < propSpec.min) {
+        return propSpec.min;
+      }
       return typeof value === 'string' ? Number(value) : value;
+    }
     case 'boolean':
       if (value === 'true') return true;
       if (value === 'false') return false;
+      return value;
+    case 'enum':
+      // STORY-100: coerce to number when values are numeric (e.g. columns '0'..'4')
+      const strVal = String(value);
+      if (propSpec.values?.includes(strVal)) {
+        const num = Number(strVal);
+        return Number.isFinite(num) ? num : strVal;
+      }
       return value;
     default:
       return value;

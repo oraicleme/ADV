@@ -1,4 +1,5 @@
 import type { FormatPreset, LayoutId, StyleOptions } from './ad-layouts/types';
+import type { FooterConfig } from './ad-config-schema';
 
 export interface ProductItem {
   name: string;
@@ -55,6 +56,8 @@ export interface AdTemplateData {
   productBlockOptions?: ProductBlockOptions;
   /** STORY-47: Brand/partner logos shown in the ad header (max 5, fixed 32px height, right-aligned). */
   headerBrandLogoDataUris?: string[];
+  /** STORY-109: Footer configuration. When enabled, a footer band is appended to the HTML output. */
+  footer?: FooterConfig;
 }
 
 export const FORMAT_PRESETS: FormatPreset[] = [
@@ -98,6 +101,9 @@ export const MIN_TITLE_FONT_SIZE = 16;
 export const MAX_TITLE_FONT_SIZE = 72;
 export const DEFAULT_TITLE_FONT_SIZE = 32;
 
+/** STORY-109: Quick-set chip presets for headline font size (matches Canva / Adobe Express). */
+export const TITLE_FONT_SIZE_PRESETS = [16, 20, 24, 32, 48, 64] as const;
+
 /** Maximum number of CTA buttons per ad (STORY-39). */
 export const MAX_CTA_BUTTONS = 4;
 
@@ -115,9 +121,22 @@ export const MIN_PRODUCT_IMAGE_HEIGHT = 40;
 export const MAX_PRODUCT_IMAGE_HEIGHT = 300;
 export const DEFAULT_PRODUCT_IMAGE_HEIGHT = 80;
 
+/** STORY-132: Preview/export image height range — fill space without breaking layout. */
+export const PRODUCT_IMAGE_HEIGHT_PREVIEW_MIN = 80;
+export const PRODUCT_IMAGE_HEIGHT_PREVIEW_MAX = 280;
+
+/**
+ * STORY-205 / industry manner: estimated vertical budget reserved for header, footer band, and padding
+ * before product rows receive height in `computeEffectiveImageHeight` (`ad-layouts/shared.ts`).
+ * Not literal measured pixels in DOM — a layout contract for available content height.
+ * @see docs/industry-standard-manner.md
+ */
+export const INDUSTRY_VERTICAL_RESERVE_FOR_CHROME_PX = 300;
+
 /**
  * Per-product-block configuration (STORY-56).
  * Controls columns, visible fields, image height, and max product count.
+ * STORY-144: showProductCount toggles visibility of "N products" and "+X more" / "X on next pages".
  */
 export interface ProductBlockOptions {
   /** Products per row. 0 = auto-calculate based on count. */
@@ -126,6 +145,8 @@ export interface ProductBlockOptions {
   maxProducts: number;
   /** Card image height in px. Propagated to both canvas and HTML renderer. */
   imageHeight: number;
+  /** When false, hide the product count and "more on next pages" line under the grid. Default true. */
+  showProductCount?: boolean;
   /** Which fields to show on each product card. */
   showFields: {
     image: boolean;
@@ -143,6 +164,7 @@ export const DEFAULT_PRODUCT_BLOCK_OPTIONS: ProductBlockOptions = {
   columns: 0,
   maxProducts: 0,
   imageHeight: DEFAULT_PRODUCT_IMAGE_HEIGHT,
+  showProductCount: true,
   showFields: {
     image: true,
     code: true,
@@ -158,8 +180,9 @@ export const DEFAULT_PRODUCT_BLOCK_OPTIONS: ProductBlockOptions = {
 /**
  * Named blocks that can be reordered within a rendered ad (STORY-40).
  * 'products' is the product grid/cards block; the others are text elements.
+ * 'footer' is always last and not drag-reorderable (STORY-109).
  */
-export type AdElementKey = 'headline' | 'products' | 'badge' | 'cta' | 'disclaimer';
+export type AdElementKey = 'headline' | 'products' | 'badge' | 'cta' | 'disclaimer' | 'footer';
 
 /** Default top-to-bottom render order: headline → products → badge → cta → disclaimer. */
 export const DEFAULT_ELEMENT_ORDER: AdElementKey[] = [

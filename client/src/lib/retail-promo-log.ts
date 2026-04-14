@@ -11,6 +11,8 @@ export type RetailPromoEventType =
   | 'file_upload_success'
   | 'file_upload_failure'
   | 'paste_products'
+  /** STORY-193: Catalog API sync rows after optional search filter (counts only). */
+  | 'catalog_import_filtered'
   | 'product_list_change'
   | 'image_upload'
   | 'mobileland_fetch'
@@ -21,6 +23,16 @@ export type RetailPromoEventType =
   | 'creative_saved'
   | 'creative_loaded'
   | 'ai_chat_message'
+  /** STORY-169: Proactive suggestion funnel — payloads use tipKeyHash (no raw copy). */
+  | 'suggestion_shown'
+  | 'suggestion_apply'
+  | 'suggestion_dismiss'
+  | 'suggestion_skipped_dedup'
+  | 'suggestion_api_error'
+  | 'proactive_suggestions_session_mute'
+  /** STORY-200: Search relevance — payloads use queryHash + productKeyHash (no raw text). */
+  | 'search_feedback_implicit'
+  | 'search_feedback_explicit'
   | 'retail_promo_error';
 
 export interface RetailPromoEventPayload {
@@ -29,6 +41,15 @@ export interface RetailPromoEventPayload {
   reason?: string;
   message?: string;
   enabled?: boolean;
+  /** STORY-169: djb2-style hash of normalized suggestion text (privacy). */
+  tipKeyHash?: string;
+  actionsCount?: number;
+  muted?: boolean;
+  /** STORY-200: 8-hex fingerprints; never raw query or SKU. */
+  queryHash?: string;
+  productKeyHash?: string;
+  source?: string;
+  relevant?: boolean;
   [key: string]: string | number | boolean | undefined;
 }
 

@@ -1,0 +1,74 @@
+---
+description: Enforces story-driven development — every feature gets a story file, tests, and completion tracking
+alwaysApply: true
+---
+
+# Story-Driven Development Workflow
+
+Every feature, fix, or change MUST follow this workflow. No exceptions.
+
+## Workflow: Story → Code → Test → Done
+
+### 1. Write the Story FIRST
+
+Before writing any code, create a story file at `docs/stories/STORY-<number>-<slug>.md` using this template:
+
+```markdown
+# STORY-<number>: <Title>
+
+**Status:** 🟡 In Progress
+**Created:** <date>
+**Package:** <package name>
+
+## What
+<1-3 sentences: what are we building/fixing?>
+
+## Why
+<1-2 sentences: what problem does this solve for the user?>
+
+## Acceptance Criteria
+- [ ] <criterion 1>
+- [ ] <criterion 2>
+- [ ] <criterion 3>
+
+## Test Plan
+- [ ] <test 1 description>
+- [ ] <test 2 description>
+
+## Files Changed
+- `path/to/file.ts` — <what changed>
+
+## Notes
+<anything the next agent needs to know>
+```
+
+### 2. Write Tests
+
+- Write tests BEFORE or ALONGSIDE the implementation (not after).
+- Place test files next to the source: `MyComponent.test.tsx` or `utils.test.ts`.
+- For integration tests, use `__tests__/` directories.
+- Every acceptance criterion from the story MUST have a corresponding test.
+- Run tests and confirm they pass.
+
+### 3. Mark Story Done
+
+When ALL acceptance criteria are checked and ALL tests pass:
+
+1. Update the story file:
+   - Change `**Status:** 🟡 In Progress` → `**Status:** ✅ Done`
+   - Check off all acceptance criteria checkboxes
+   - Check off all test plan checkboxes
+   - Fill in "Files Changed" with actual files modified
+2. Update `docs/stories/TRACKER.md` — move the story from "In Progress" to "Done"
+
+### 4. Story Numbering
+
+Read `docs/stories/TRACKER.md` to find the next available story number. Always increment.
+
+## Rules
+
+- NEVER skip the story file — even for "small" fixes.
+- NEVER mark a story done without passing tests.
+- If you discover scope creep, create a NEW story for the extra work.
+- If a story is blocked or abandoned, set status to `🔴 Blocked` or `⚫ Cancelled`.
+- Always read `docs/stories/TRACKER.md` at the start of a session to know what's in progress.

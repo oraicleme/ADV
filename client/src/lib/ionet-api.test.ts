@@ -1,42 +1,14 @@
 import { describe, it, expect } from 'vitest';
 
 /**
- * Test to validate VITE_IONET_API_KEY frontend secret.
- * This test verifies that the IO.NET API key is properly configured
- * and can be used to call the AI Design Assistant.
+ * STORY-192: No live io.net calls here — avoids flaky CI and Vitest default timeouts.
+ * Real API checks: `pnpm test:integration` → `client/src/lib/ionet-api.integration.test.ts`
+ * Unit coverage for HTTP client: `ionet-client.test.ts` (mocked fetch).
  */
-describe('IO.NET Frontend API', () => {
-  it('should have VITE_IONET_API_KEY configured', () => {
+describe('IO.NET env (unit)', () => {
+  it('when VITE_IONET_API_KEY is set, it matches the io-v2- prefix', () => {
     const apiKey = import.meta.env.VITE_IONET_API_KEY;
-    expect(apiKey).toBeDefined();
-    expect(apiKey).not.toBe('');
+    if (!apiKey) return;
     expect(apiKey).toMatch(/^io-v2-/);
-  });
-
-  it('should be able to call IO.NET API with the key', async () => {
-    const apiKey = import.meta.env.VITE_IONET_API_KEY;
-    
-    if (!apiKey) {
-      console.warn('VITE_IONET_API_KEY not configured, skipping API test');
-      return;
-    }
-
-    try {
-      const response = await fetch('https://api.intelligence.io.solutions/api/v1/models', {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${apiKey}`,
-          'Content-Type': 'application/json',
-        },
-      });
-
-      expect(response.status).toBe(200);
-      const data = await response.json();
-      expect(data).toBeDefined();
-      expect(Array.isArray(data.data) || Array.isArray(data)).toBe(true);
-    } catch (error) {
-      console.error('IO.NET API test failed:', error);
-      throw error;
-    }
   });
 });

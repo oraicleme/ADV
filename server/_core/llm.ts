@@ -210,14 +210,20 @@ const normalizeToolChoice = (
   return toolChoice;
 };
 
-const resolveApiUrl = () =>
-  ENV.forgeApiUrl && ENV.forgeApiUrl.trim().length > 0
-    ? `${ENV.forgeApiUrl.replace(/\/$/, "")}/v1/chat/completions`
-    : "https://forge.manus.im/v1/chat/completions";
+const resolveApiUrl = () => {
+  const base = ENV.forgeApiUrl?.trim();
+  if (base && base.length > 0) {
+    const clean = base.replace(/\/$/, "");
+    return clean.endsWith("/chat/completions") ? clean : `${clean}/chat/completions`;
+  }
+  return "https://api.intelligence.io.solutions/api/v1/chat/completions";
+};
 
 const assertApiKey = () => {
   if (!ENV.forgeApiKey) {
-    throw new Error("OPENAI_API_KEY is not configured");
+    throw new Error(
+      "LLM API key not set — use ORAICLE_API_KEY or VITE_IONET_API_KEY (same as agent) in .env.local"
+    );
   }
 };
 
@@ -281,7 +287,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
   } = params;
 
   const payload: Record<string, unknown> = {
-    model: "gemini-2.5-flash",
+    model: ENV.llmModel,
     messages: messages.map(normalizeMessage),
   };
 
@@ -326,7 +332,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
             },
             body: JSON.stringify(payload),
           },
-          30000 // 30 second timeout
+          ENV.llmRequestTimeoutMs
         );
 
         if (!response.ok) {
@@ -342,7 +348,7 @@ export async function invokeLLM(params: InvokeParams): Promise<InvokeResult> {
         maxRetries: 3,
         initialDelayMs: 1000,
         maxDelayMs: 8000,
-        timeoutMs: 30000,
+        timeoutMs: ENV.llmRequestTimeoutMs,
         backoffMultiplier: 2,
       }
     );

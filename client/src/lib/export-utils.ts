@@ -1,9 +1,11 @@
 /**
  * Export utilities for downloading ads as HTML or PNG
  * Handles canvas-to-image conversion and file download
+ * STORY-143: Resolves http(s) image URLs to data URIs before capture so product images render.
  */
 
 import html2canvas from 'html2canvas';
+import { resolveImagesInElement } from './export-image-resolution';
 
 export interface ExportOptions {
   filename?: string;
@@ -26,25 +28,32 @@ export async function exportAdAsPNG(
       throw new Error(`Element with ID "${elementId}" not found`);
     }
 
-    // Capture the element as canvas
-    const canvas = await html2canvas(element, {
-      scale,
-      useCORS: true,
-      allowTaint: true,
-      backgroundColor: '#ffffff',
-    });
-
-    // Convert canvas to blob and download
-    canvas.toBlob(
-      (blob) => {
-        if (!blob) {
-          throw new Error('Failed to create blob from canvas');
-        }
-        downloadBlob(blob, filename);
-      },
-      'image/png',
-      quality,
-    );
+    const clone = element.cloneNode(true) as HTMLElement;
+    clone.style.position = 'fixed';
+    clone.style.left = '-9999px';
+    clone.style.top = '0';
+    document.body.appendChild(clone);
+    try {
+      await resolveImagesInElement(clone);
+      const canvas = await html2canvas(clone, {
+        scale,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#ffffff',
+      });
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) {
+            throw new Error('Failed to create blob from canvas');
+          }
+          downloadBlob(blob, filename);
+        },
+        'image/png',
+        quality,
+      );
+    } finally {
+      clone.remove();
+    }
   } catch (error) {
     console.error('PNG export failed:', error);
     throw error;
@@ -96,25 +105,32 @@ export async function exportAdAsJPEG(
       throw new Error(`Element with ID "${elementId}" not found`);
     }
 
-    // Capture the element as canvas
-    const canvas = await html2canvas(element, {
-      scale,
-      useCORS: true,
-      allowTaint: true,
-      backgroundColor: '#ffffff',
-    });
-
-    // Convert canvas to blob and download
-    canvas.toBlob(
-      (blob) => {
-        if (!blob) {
-          throw new Error('Failed to create blob from canvas');
-        }
-        downloadBlob(blob, filename);
-      },
-      'image/jpeg',
-      quality,
-    );
+    const clone = element.cloneNode(true) as HTMLElement;
+    clone.style.position = 'fixed';
+    clone.style.left = '-9999px';
+    clone.style.top = '0';
+    document.body.appendChild(clone);
+    try {
+      await resolveImagesInElement(clone);
+      const canvas = await html2canvas(clone, {
+        scale,
+        useCORS: true,
+        allowTaint: true,
+        backgroundColor: '#ffffff',
+      });
+      canvas.toBlob(
+        (blob) => {
+          if (!blob) {
+            throw new Error('Failed to create blob from canvas');
+          }
+          downloadBlob(blob, filename);
+        },
+        'image/jpeg',
+        quality,
+      );
+    } finally {
+      clone.remove();
+    }
   } catch (error) {
     console.error('JPEG export failed:', error);
     throw error;
@@ -279,7 +295,8 @@ function downloadBlob(blob: Blob, filename: string): void {
 }
 
 /**
- * Get canvas from element for advanced processing
+ * Get canvas from element for advanced processing.
+ * Resolves http(s) image URLs to data URIs before capture (STORY-143).
  */
 export async function getCanvasFromElement(
   elementId: string,
@@ -292,10 +309,20 @@ export async function getCanvasFromElement(
     throw new Error(`Element with ID "${elementId}" not found`);
   }
 
-  return html2canvas(element, {
-    scale,
-    useCORS: true,
-    allowTaint: true,
-    backgroundColor: '#ffffff',
-  });
+  const clone = element.cloneNode(true) as HTMLElement;
+  clone.style.position = 'fixed';
+  clone.style.left = '-9999px';
+  document.body.appendChild(clone);
+  try {
+    await resolveImagesInElement(clone);
+    const canvas = await html2canvas(clone, {
+      scale,
+      useCORS: true,
+      allowTaint: true,
+      backgroundColor: '#ffffff',
+    });
+    return canvas;
+  } finally {
+    clone.remove();
+  }
 }

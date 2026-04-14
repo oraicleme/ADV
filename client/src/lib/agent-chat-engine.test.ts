@@ -3,16 +3,29 @@
  * Covers parseAgentResponse(), buildMessagesForApi(), requestProactiveSuggestion(), and response parsing robustness.
  */
 
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
+  CHAT_MODEL_PAIR_BY_MODE,
   parseAgentResponse,
   buildMessagesForApi,
   AGENT_SYSTEM_PROMPT,
+  AGENT_MAIN_CHAT_SYSTEM_PROMPT,
+  AGENT_INTENT_ROUTING_PROMPT,
+  classifyEmptyActionsLogReason,
+  jsonBraceDepthOutsideStrings,
   requestProactiveSuggestion,
   type ConversationMessage,
 } from './agent-chat-engine';
 
 vi.mock('./ionet-client', () => ({ chatCompletion: vi.fn() }));
+
+const AGENT_CHAT_ENGINE_SOURCE = readFileSync(
+  join(dirname(fileURLToPath(import.meta.url)), 'agent-chat-engine.ts'),
+  'utf8',
+);
 
 const MINIMAL_CANVAS_STATE = {
   blocks: {
@@ -49,6 +62,17 @@ const MINIMAL_CANVAS_STATE = {
     },
   },
 };
+
+const LLAMA_33_70B = 'meta-llama/Llama-3.3-70B-Instruct';
+
+describe('CHAT_MODEL_PAIR_BY_MODE', () => {
+  it('uses Llama-3.3-70B-Instruct where gpt-oss-20b was the fast primary / smart fallback', () => {
+    expect(CHAT_MODEL_PAIR_BY_MODE.fast.primary).toBe(LLAMA_33_70B);
+    expect(CHAT_MODEL_PAIR_BY_MODE.smart.fallback).toBe(LLAMA_33_70B);
+    expect(CHAT_MODEL_PAIR_BY_MODE.fast.fallback).toBe('openai/gpt-oss-120b');
+    expect(CHAT_MODEL_PAIR_BY_MODE.smart.primary).toBe('openai/gpt-oss-120b');
+  });
+});
 
 // ---- parseAgentResponse ----
 
@@ -194,6 +218,30 @@ describe('parseAgentResponse', () => {
     const result = parseAgentResponse(raw);
     expect(result.reasoning).toBeUndefined();
   });
+
+  // Truncation recovery — these simulate the real failure mode where the LLM
+  // hits max_completion_tokens mid-response and the JSON is cut off.
+  it('recovers message from truncated JSON (no closing brace)', () => {
+    const truncated = `{"reasoning":"6 products on story...","message":"Odabrao sam Denmen držače!","actions":[{"type":"catalog_filter","payload":{"nameContains":"Denmen","category":"Držači za mob. tel.","maxSelect":0`;
+    const result = parseAgentResponse(truncated);
+    expect(result.message).toBe('Odabrao sam Denmen držače!');
+  });
+
+  it('recovers complete actions from a response truncated mid-actions-array', () => {
+    const completeAction = `{"type":"catalog_filter","payload":{"nameContains":"Denmen","category":"Test","maxSelect":0,"deselectOthers":true}}`;
+    const truncated = `{"message":"Filtering...","actions":[${completeAction},{"type":"style_change","payload":{"backgroundCo`;
+    const result = parseAgentResponse(truncated);
+    expect(result.message).toBe('Filtering...');
+    // At least the complete action should be recovered
+    expect(result.actions.length).toBeGreaterThanOrEqual(1);
+    expect(result.actions[0]!.type).toBe('catalog_filter');
+  });
+
+  it('does not show raw JSON reasoning prefix in fallback message', () => {
+    const rawWithPrefix = `"reasoning": "Some technical reasoning...","message": `;
+    const result = parseAgentResponse(rawWithPrefix);
+    expect(result.message).not.toMatch(/^"reasoning"/);
+  });
 });
 
 // ---- buildMessagesForApi ----
@@ -202,7 +250,24 @@ describe('buildMessagesForApi', () => {
   it('starts with system message', () => {
     const messages = buildMessagesForApi([], MINIMAL_CANVAS_STATE, 'Hello');
     expect(messages[0]!.role).toBe('system');
-    expect(messages[0]!.content).toBe(AGENT_SYSTEM_PROMPT);
+    expect(messages[0]!.content).toBe(AGENT_MAIN_CHAT_SYSTEM_PROMPT);
+  });
+
+  it('STORY-189: system message includes intent routing section', () => {
+    const messages = buildMessagesForApi([], MINIMAL_CANVAS_STATE, 'Hi');
+    const sys = messages[0]!.content as string;
+    expect(sys).toContain('USER INTENT ROUTING');
+    expect(sys).toContain('SEARCH / CATALOG / WORKSPACE HELP');
+    expect(AGENT_INTENT_ROUTING_PROMPT.length).toBeGreaterThan(100);
+  });
+
+  it('STORY-195: system message includes grounded search architecture for merchant/developer explanations', () => {
+    const messages = buildMessagesForApi([], MINIMAL_CANVAS_STATE, 'How does search work?');
+    const sys = messages[0]!.content as string;
+    expect(sys).toContain('SEARCH ARCHITECTURE');
+    expect(sys).toContain('MiniSearch');
+    expect(sys).toContain('Meilisearch');
+    expect(sys).toContain('selectProducts');
   });
 
   it('ends with user message embedding canvas state', () => {
@@ -249,6 +314,15 @@ describe('buildMessagesForApi', () => {
     expect(userMsg).toContain('"layout": "multi-grid"');
     expect(userMsg).toContain('"productCount": 3');
   });
+
+  it('STORY-175: merges workspace brief into system message when provided', () => {
+    const messages = buildMessagesForApi([], MINIMAL_CANVAS_STATE, 'Hi', 'Prefer Balkan retail tone.');
+    expect(messages[0]!.role).toBe('system');
+    const sys = messages[0]!.content as string;
+    expect(sys).toContain('Workspace creative brief');
+    expect(sys).toContain('Prefer Balkan retail tone.');
+    expect(sys.startsWith(AGENT_SYSTEM_PROMPT)).toBe(true);
+  });
 });
 
 // ---- System prompt ----
@@ -285,6 +359,61 @@ describe('AGENT_SYSTEM_PROMPT', () => {
 
   it('includes reasoning instruction for chain-of-thought', () => {
     expect(AGENT_SYSTEM_PROMPT.toLowerCase()).toContain('reasoning');
+  });
+});
+
+describe('SUGGESTION_SYSTEM_PROMPT (invariants)', () => {
+  it('forbids non-actionable messages and anti-multipage product-capping advice', () => {
+    expect(AGENT_CHAT_ENGINE_SOURCE).toContain(
+      'Never output non-empty "message" with an empty "actions"',
+    );
+    expect(AGENT_CHAT_ENGINE_SOURCE).toContain('NEVER suggest lowering maxProducts');
+    expect(AGENT_CHAT_ENGINE_SOURCE).toContain('productBlockOptions.columns');
+  });
+});
+
+// ---- STORY-191: empty-actions classification ----
+
+describe('jsonBraceDepthOutsideStrings', () => {
+  it('returns 0 for balanced JSON object', () => {
+    expect(jsonBraceDepthOutsideStrings('{"message":"hi","actions":[]}')).toBe(0);
+  });
+
+  it('returns non-zero when an object is not closed (truncation)', () => {
+    expect(
+      jsonBraceDepthOutsideStrings(
+        '{"message":"hi","actions":[{"type":"block_patch","payload":{"blockType":"headline"',
+      ),
+    ).not.toBe(0);
+  });
+
+  it('ignores braces inside JSON string values', () => {
+    expect(jsonBraceDepthOutsideStrings('{"message":"brace { in text","actions":[]}')).toBe(0);
+  });
+});
+
+describe('classifyEmptyActionsLogReason (STORY-191)', () => {
+  it('informational_empty for complete JSON with empty actions', () => {
+    expect(classifyEmptyActionsLogReason('{"message":"Explained search.","actions":[]}')).toBe(
+      'informational_empty',
+    );
+  });
+
+  it('truncation_suspected when braces are unbalanced', () => {
+    expect(
+      classifyEmptyActionsLogReason(
+        '{"reasoning":"x","message":"y","actions":[{"type":"catalog_filter","payload":',
+      ),
+    ).toBe('truncation_suspected');
+  });
+
+  it('informational_empty for prose without JSON braces', () => {
+    expect(classifyEmptyActionsLogReason('Just plain assistant text.')).toBe('informational_empty');
+  });
+
+  it('strips markdown fence before classifying', () => {
+    const inner = '{"message":"x","actions":[]}';
+    expect(classifyEmptyActionsLogReason('```json\n' + inner + '\n```')).toBe('informational_empty');
   });
 });
 
@@ -381,5 +510,71 @@ describe('requestProactiveSuggestion', () => {
     });
     expect(result.message).toBe('');
     expect(result.actions).toHaveLength(0);
+  });
+
+  it('returns empty when API returns message without actions (not actionable)', async () => {
+    const { chatCompletion } = await import('./ionet-client');
+    vi.mocked(chatCompletion).mockResolvedValue({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              message: 'You should really improve this.',
+              actions: [],
+            }),
+            finish_reason: 'stop',
+          },
+        },
+      ],
+    });
+    const result = await requestProactiveSuggestion({
+      apiKey: 'test-key',
+      canvasState: minimalCanvasState,
+    });
+    expect(result.message).toBe('');
+    expect(result.actions).toHaveLength(0);
+  });
+
+  it('uses fallback label when API returns actions but empty message', async () => {
+    const { chatCompletion } = await import('./ionet-client');
+    vi.mocked(chatCompletion).mockResolvedValue({
+      choices: [
+        {
+          message: {
+            content: JSON.stringify({
+              message: '',
+              actions: [
+                { type: 'block_patch', payload: { blockType: 'badge', property: 'text', value: 'SALE' } },
+              ],
+            }),
+            finish_reason: 'stop',
+          },
+        },
+      ],
+    });
+    const result = await requestProactiveSuggestion({
+      apiKey: 'test-key',
+      canvasState: minimalCanvasState,
+    });
+    expect(result.message).toBe('Suggested update');
+    expect(result.actions).toHaveLength(1);
+  });
+
+  it('STORY-175: includes workspace brief in suggestion system prompt when provided', async () => {
+    const { chatCompletion } = await import('./ionet-client');
+    vi.mocked(chatCompletion).mockResolvedValue({
+      choices: [{ message: { content: JSON.stringify({ message: '', actions: [] }), finish_reason: 'stop' } }],
+    });
+    await requestProactiveSuggestion({
+      apiKey: 'test-key',
+      canvasState: minimalCanvasState,
+      userBrief: 'Always suggest luxury palettes.',
+    });
+    const call = vi.mocked(chatCompletion).mock.calls[0];
+    expect(call).toBeDefined();
+    const payload = call![1] as { messages: { role: string; content: string }[] };
+    expect(payload.messages[0]!.role).toBe('system');
+    expect(payload.messages[0]!.content).toContain('Always suggest luxury palettes.');
+    expect(payload.messages[0]!.content).toContain('Workspace creative brief');
   });
 });

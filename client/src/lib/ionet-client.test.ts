@@ -1,134 +1,120 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+/**
+ * STORY-192: io.net client — no real network; fetch is mocked.
+ */
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { listModels, chatCompletion } from './ionet-client';
+import { isLlmCallError } from './llm-call-error';
 
-describe('ionet-client', () => {
+function jsonResponse(data: unknown, init: { ok?: boolean; status?: number } = {}) {
+  return {
+    ok: init.ok ?? true,
+    status: init.status ?? 200,
+    text: async () => JSON.stringify(data),
+    json: async () => data,
+  } as Response;
+}
+
+describe('ionet-client (mocked fetch)', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn());
   });
 
-  describe('listModels', () => {
-    it('sends GET to /models with Bearer auth', async () => {
-      const mockFetch = vi.mocked(fetch);
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () => Promise.resolve({ data: [{ id: 'openai/gpt-oss-120b' }] }),
-      } as Response);
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
 
-      await listModels('sk-test-key');
+  it('listModels: returns normalized models on 200', async () => {
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse({
+        data: [{ id: 'openai/gpt-oss-20b', object: 'model' }],
+      }),
+    );
+    const models = await listModels('test-key');
+    expect(models).toHaveLength(1);
+    expect(models[0]!.id).toBe('openai/gpt-oss-20b');
+    expect(vi.mocked(fetch)).toHaveBeenCalledWith(
+      'https://api.intelligence.io.solutions/api/v1/models',
+      expect.objectContaining({ method: 'GET' }),
+    );
+  });
 
-      expect(mockFetch).toHaveBeenCalledWith(
-        'https://api.intelligence.io.solutions/api/v1/models',
-        expect.objectContaining({
-          method: 'GET',
-          headers: { Authorization: 'Bearer sk-test-key' },
-        })
-      );
-    });
+  it('listModels: throws LlmCallError on HTTP error', async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      ok: false,
+      status: 401,
+      text: async () => 'unauthorized',
+      json: async () => ({}),
+    } as Response);
 
-    it('returns normalized model list', async () => {
-      const mockFetch = vi.mocked(fetch);
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            data: [
-              { id: 'openai/gpt-oss-120b' },
-              { model_id: 'Qwen/Qwen2.5-VL-32B-Instruct' },
-            ],
-          }),
-      } as Response);
+    await expect(listModels('bad-key')).rejects.toSatisfy(
+      (e: unknown) => isLlmCallError(e) && e.httpStatus === 401 && e.kind === 'list_models',
+    );
+  });
 
-      const models = await listModels('key');
-      expect(models).toHaveLength(2);
-      expect(models[0].id).toBe('openai/gpt-oss-120b');
-      expect(models[1].id).toBe('Qwen/Qwen2.5-VL-32B-Instruct');
-    });
+  it('listModels: throws LlmCallError on invalid JSON body', async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => {
+        throw new SyntaxError('bad');
+      },
+      text: async () => 'not json',
+    } as Response);
 
-    it('throws on non-ok response', async () => {
-      const mockFetch = vi.mocked(fetch);
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 401,
-        text: () => Promise.resolve('Unauthorized'),
-      } as Response);
-
-      await expect(listModels('bad-key')).rejects.toThrow(/401/);
+    await expect(listModels('k')).rejects.toMatchObject({
+      kind: 'list_models',
+      provider: 'io.net',
     });
   });
 
-  describe('chatCompletion', () => {
-    it('sends POST to /chat/completions with JSON body', async () => {
-      const mockFetch = vi.mocked(fetch);
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            choices: [{ message: { content: 'Hi' }, finish_reason: 'stop' }],
-          }),
-      } as Response);
+  it('chatCompletion: returns parsed body on 200', async () => {
+    const body = {
+      choices: [
+        {
+          message: { content: 'OK', role: 'assistant' },
+          finish_reason: 'stop',
+        },
+      ],
+    };
+    vi.mocked(fetch).mockResolvedValue(jsonResponse(body));
 
-      await chatCompletion('sk-key', {
+    const res = await chatCompletion('k', {
+      model: 'openai/gpt-oss-20b',
+      messages: [{ role: 'user', content: 'hi' }],
+    });
+    expect(res.choices[0]!.message.content).toBe('OK');
+  });
+
+  it('chatCompletion: LlmCallError includes model id on failure', async () => {
+    vi.mocked(fetch).mockResolvedValue({
+      ok: false,
+      status: 503,
+      text: async () => 'unavailable',
+    } as Response);
+
+    await expect(
+      chatCompletion('k', {
         model: 'openai/gpt-oss-120b',
-        messages: [{ role: 'user', content: 'Hello' }],
-        max_completion_tokens: 100,
-      });
-
-      expect(mockFetch).toHaveBeenCalledWith(
-        'https://api.intelligence.io.solutions/api/v1/chat/completions',
-        expect.objectContaining({
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: 'Bearer sk-key',
-          },
-        })
-      );
-      const body = JSON.parse(mockFetch.mock.calls[0]![1]!.body as string);
-      expect(body.stream).toBe(false);
-      expect(body.model).toBe('openai/gpt-oss-120b');
-      expect(body.messages).toEqual([{ role: 'user', content: 'Hello' }]);
-      expect(body.max_completion_tokens).toBe(100);
+        messages: [{ role: 'user', content: 'x' }],
+      }),
+    ).rejects.toMatchObject({
+      kind: 'chat_completion',
+      modelId: 'openai/gpt-oss-120b',
+      httpStatus: 503,
     });
+  });
 
-    it('returns choices and usage', async () => {
-      const mockFetch = vi.mocked(fetch);
-      mockFetch.mockResolvedValueOnce({
-        ok: true,
-        json: () =>
-          Promise.resolve({
-            choices: [
-              {
-                message: { content: '{"headline":"Sale"}', role: 'assistant' },
-                finish_reason: 'stop',
-              },
-            ],
-            usage: { prompt_tokens: 10, completion_tokens: 5, total_tokens: 15 },
-          }),
-      } as Response);
+  it('chatCompletion: network/timeout wrapped as LlmCallError', async () => {
+    vi.mocked(fetch).mockRejectedValue(new Error('io.net request to … timed out after 60000ms'));
 
-      const res = await chatCompletion('key', {
-        model: 'openai/gpt-oss-20b',
-        messages: [{ role: 'user', content: 'Generate ad' }],
-      });
-
-      expect(res.choices[0].message.content).toBe('{"headline":"Sale"}');
-      expect(res.usage?.total_tokens).toBe(15);
-    });
-
-    it('throws on API error', async () => {
-      const mockFetch = vi.mocked(fetch);
-      mockFetch.mockResolvedValueOnce({
-        ok: false,
-        status: 429,
-        text: () => Promise.resolve('Rate limit exceeded'),
-      } as Response);
-
-      await expect(
-        chatCompletion('key', {
-          model: 'openai/gpt-oss-120b',
-          messages: [{ role: 'user', content: 'Hi' }],
-        })
-      ).rejects.toThrow(/429/);
+    await expect(
+      chatCompletion('k', {
+        model: 'm',
+        messages: [{ role: 'user', content: 'x' }],
+      }),
+    ).rejects.toMatchObject({
+      kind: 'chat_completion',
+      modelId: 'm',
     });
   });
 });

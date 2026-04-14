@@ -1,0 +1,20 @@
+
+export default new Map([
+["src/content/docs/apis/chat-completions.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fapis%2Fchat-completions.mdx&astroContentModuleFlag=true")],
+["src/content/docs/apis/embeddings.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fapis%2Fembeddings.mdx&astroContentModuleFlag=true")],
+["src/content/docs/apis/files.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fapis%2Ffiles.mdx&astroContentModuleFlag=true")],
+["src/content/docs/index.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Findex.mdx&astroContentModuleFlag=true")],
+["src/content/docs/best-practices/integration-patterns.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fbest-practices%2Fintegration-patterns.mdx&astroContentModuleFlag=true")],
+["src/content/docs/best-practices/cost-optimization.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fbest-practices%2Fcost-optimization.mdx&astroContentModuleFlag=true")],
+["src/content/docs/apis/tools.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fapis%2Ftools.mdx&astroContentModuleFlag=true")],
+["src/content/docs/apis/mcp.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fapis%2Fmcp.mdx&astroContentModuleFlag=true")],
+["src/content/docs/best-practices/performance-optimization.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fbest-practices%2Fperformance-optimization.mdx&astroContentModuleFlag=true")],
+["src/content/docs/best-practices/model-selection-strategy.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fbest-practices%2Fmodel-selection-strategy.mdx&astroContentModuleFlag=true")],
+["src/content/docs/introduction/authentication.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fintroduction%2Fauthentication.mdx&astroContentModuleFlag=true")],
+["src/content/docs/best-practices/reliability-error-handling.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fbest-practices%2Freliability-error-handling.mdx&astroContentModuleFlag=true")],
+["src/content/docs/best-practices/security-best-practices.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fbest-practices%2Fsecurity-best-practices.mdx&astroContentModuleFlag=true")],
+["src/content/docs/best-practices/prompt-engineering.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fbest-practices%2Fprompt-engineering.mdx&astroContentModuleFlag=true")],
+["src/content/docs/introduction/n8n.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fintroduction%2Fn8n.mdx&astroContentModuleFlag=true")],
+["src/content/docs/introduction/models.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fintroduction%2Fmodels.mdx&astroContentModuleFlag=true")],
+["src/content/docs/introduction/getting-started.mdx", () => import("astro:content-layer-deferred-module?astro%3Acontent-layer-deferred-module=&fileName=src%2Fcontent%2Fdocs%2Fintroduction%2Fgetting-started.mdx&astroContentModuleFlag=true")]]);
+		

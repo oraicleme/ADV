@@ -14,6 +14,31 @@ export type { ParseResult, ParseStats };
 
 type Row = Record<string, unknown>;
 
+/**
+ * Normalize a raw product code/SKU value to a clean string.
+ *
+ * Handles all forms Excel/SheetJS may produce:
+ *   - number cell (xlsx raw=true)    → 1074427 (JS number)   → "1074427"
+ *   - text cell containing digits    → "1074427" (JS string)  → "1074427"
+ *   - float that is integer-like     → 1074427.0              → "1074427"
+ *   - string with unicode whitespace → " 1074427\u00A0"       → "1074427"
+ *   - null / empty                   → undefined
+ */
+function normalizeCode(raw: unknown): string | undefined {
+  if (raw == null) return undefined;
+  let str: string;
+  if (typeof raw === 'number') {
+    if (!isFinite(raw)) return undefined;
+    // Convert integer-like floats without a decimal suffix
+    str = Number.isInteger(raw) ? String(raw) : String(Math.round(raw));
+  } else {
+    str = String(raw);
+  }
+  // Strip unicode whitespace variants (non-breaking space, BOM, thin space, etc.)
+  str = str.replace(/[\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000\uFEFF]/g, '').trim();
+  return str || undefined;
+}
+
 const NAME_VARIANTS = [
   'name', 'naziv', 'ime', 'opis', 'description', 'desc',
   'product', 'proizvod', 'artikal', 'article', 'item',
@@ -164,7 +189,7 @@ export function parseExcelBuffer(buffer: ArrayBuffer): ParseResult {
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i];
     const name = nameCol ? String(row[nameCol] ?? '').trim() : '';
-    const code = codeCol ? String(row[codeCol] ?? '').trim() : undefined;
+    const code = codeCol ? normalizeCode(row[codeCol]) : undefined;
 
     if (!name && !code) {
       stats.skippedCount++;

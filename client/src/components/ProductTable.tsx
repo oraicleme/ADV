@@ -1,6 +1,6 @@
 import React, { useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { Trash2, Camera } from 'lucide-react';
+import { Trash2, Camera, ThumbsDown, ThumbsUp } from 'lucide-react';
 import type { ProductItem } from '../lib/ad-templates';
 import { formatPrice } from '../lib/price-format';
 import type { SavedProductPhotoEntry } from '../lib/saved-product-photos';
@@ -31,6 +31,9 @@ interface ProductTableProps {
   onAssignPhoto?: (index: number, dataUri: string) => void;
   /** STORY-55: called when user uploads a new photo from the row picker. */
   onUploadPhoto?: (index: number, file: File) => void;
+  /** STORY-200: explicit relevance vs last agent catalog search (hashed in parent). */
+  searchFeedbackEnabled?: boolean;
+  onSearchFeedbackExplicit?: (index: number, relevant: boolean) => void;
 }
 
 const ROW_HEIGHT_ESTIMATE = 36; // px — compact table row
@@ -48,6 +51,8 @@ export default function ProductTable({
   savedProductPhotos,
   onAssignPhoto,
   onUploadPhoto,
+  searchFeedbackEnabled = false,
+  onSearchFeedbackExplicit,
 }: ProductTableProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -96,6 +101,8 @@ export default function ProductTable({
       savedProductPhotos={savedProductPhotos}
       onAssignPhoto={onAssignPhoto}
       onUploadPhoto={onUploadPhoto}
+      searchFeedbackEnabled={searchFeedbackEnabled}
+      onSearchFeedbackExplicit={onSearchFeedbackExplicit}
     />
   );
 }
@@ -119,6 +126,8 @@ interface VirtualTableProps {
   savedProductPhotos?: SavedProductPhotoEntry[];
   onAssignPhoto?: (index: number, dataUri: string) => void;
   onUploadPhoto?: (index: number, file: File) => void;
+  searchFeedbackEnabled?: boolean;
+  onSearchFeedbackExplicit?: (index: number, relevant: boolean) => void;
 }
 
 function VirtualTable({
@@ -138,6 +147,8 @@ function VirtualTable({
   savedProductPhotos,
   onAssignPhoto,
   onUploadPhoto,
+  searchFeedbackEnabled = false,
+  onSearchFeedbackExplicit,
 }: VirtualTableProps) {
   const rowVirtualizer = useVirtualizer({
     count: indicesToShow.length,
@@ -149,6 +160,8 @@ function VirtualTable({
   const [openPicker, setOpenPicker] = useState<{ index: number; rect: DOMRect } | null>(null);
 
   const showPhotoColumn = onAssignPhoto !== undefined;
+  const showSearchFeedbackColumn =
+    Boolean(searchFeedbackEnabled) && onSearchFeedbackExplicit !== undefined;
 
   const virtualItems = rowVirtualizer.getVirtualItems();
   const totalVirtualHeight = rowVirtualizer.getTotalSize();
@@ -177,7 +190,10 @@ function VirtualTable({
   // colSpan for spacer rows
   const baseColCount = 7; // #, Code, Name, Price, Wholesale, Category, Remove
   const totalColCount =
-    baseColCount + (showSelection ? 1 : 0) + (showPhotoColumn ? 1 : 0);
+    baseColCount +
+    (showSelection ? 1 : 0) +
+    (showPhotoColumn ? 1 : 0) +
+    (showSearchFeedbackColumn ? 1 : 0);
 
   return (
     <div
@@ -207,6 +223,11 @@ function VirtualTable({
             <th className="px-3 py-2">#</th>
             {showPhotoColumn && (
               <th className="px-2 py-2 w-12 text-center">Photo</th>
+            )}
+            {showSearchFeedbackColumn && (
+              <th className="px-1 py-2 w-16 text-center" title="Relevance vs last agent catalog search">
+                Match
+              </th>
             )}
             <th className="px-3 py-2">Code</th>
             <th className="px-3 py-2">Name</th>
@@ -305,6 +326,35 @@ function VirtualTable({
                         onClose={() => setOpenPicker(null)}
                         anchorRect={openPicker?.rect}
                       />
+                    )}
+                  </td>
+                )}
+
+                {showSearchFeedbackColumn && (
+                  <td className="px-1 py-1 text-center align-middle">
+                    {isSelected ? (
+                      <div className="inline-flex gap-0.5">
+                        <button
+                          type="button"
+                          data-testid={`search-feedback-up-${i}`}
+                          title="Relevant for last agent search"
+                          className="rounded p-0.5 text-gray-500 hover:bg-emerald-500/15 hover:text-emerald-400"
+                          onClick={() => onSearchFeedbackExplicit!(i, true)}
+                        >
+                          <ThumbsUp className="h-3 w-3" aria-hidden />
+                        </button>
+                        <button
+                          type="button"
+                          data-testid={`search-feedback-down-${i}`}
+                          title="Not relevant for last agent search"
+                          className="rounded p-0.5 text-gray-500 hover:bg-amber-500/15 hover:text-amber-400"
+                          onClick={() => onSearchFeedbackExplicit!(i, false)}
+                        >
+                          <ThumbsDown className="h-3 w-3" aria-hidden />
+                        </button>
+                      </div>
+                    ) : (
+                      <span className="text-[10px] text-gray-600">—</span>
                     )}
                   </td>
                 )}

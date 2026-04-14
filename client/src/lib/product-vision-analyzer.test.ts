@@ -1,12 +1,14 @@
 /**
- * STORY-68: product-vision-analyzer unit tests
+ * STORY-68 / STORY-108: product-vision-analyzer unit tests
  *
  * All tests run without network access — the io.net chatCompletion is mocked.
+ * STORY-108 adds filterVisionImageUris tests + two-turn regression scenario.
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import {
   analyzeProductImages,
+  filterVisionImageUris,
   sampleImages,
   resizeImageDataUri,
   type ProductImageAnalysis,
@@ -219,4 +221,172 @@ describe('DataQuality imageAnalysis field', () => {
     };
     expect(dq.imageAnalysis!.productCategory).toBe('electronics');
   });
+});
+
+// ------- filterVisionImageUris (STORY-108) -------
+
+describe('filterVisionImageUris', () => {
+  it('returns empty array for empty input', () => {
+    expect(filterVisionImageUris([])).toEqual([]);
+  });
+
+  it('passes through base64 data: URIs unchanged', () => {
+    const uris = ['data:image/jpeg;base64,/9j/4AAQ', 'data:image/png;base64,iVBORw0'];
+    expect(filterVisionImageUris(uris)).toEqual(uris);
+  });
+
+  it('filters out https:// Mobileland catalog URLs', () => {
+    const uris = [
+      'https://mobileland.me/catalog/product/m/a/main-img_111.jpg',
+      'https://mobileland.me/catalog/product/s/e/second-img.jpg',
+    ];
+    expect(filterVisionImageUris(uris)).toEqual([]);
+  });
+
+  it('filters out http:// URLs', () => {
+    const uris = ['http://example.com/product.jpg'];
+    expect(filterVisionImageUris(uris)).toEqual([]);
+  });
+
+  it('filters out any non-data: URL scheme (blob:, file:, ftp:)', () => {
+    expect(filterVisionImageUris(['blob:https://app.com/uuid'])).toEqual([]);
+    expect(filterVisionImageUris(['file:///tmp/image.jpg'])).toEqual([]);
+    expect(filterVisionImageUris(['ftp://files.example.com/img.jpg'])).toEqual([]);
+  });
+
+  it('filters out undefined values', () => {
+    expect(filterVisionImageUris([undefined, undefined])).toEqual([]);
+  });
+
+  it('filters out null values', () => {
+    expect(filterVisionImageUris([null, null])).toEqual([]);
+  });
+
+  it('keeps data: URIs from a mixed input, drops everything else', () => {
+    const mixed = [
+      'https://mobileland.me/catalog/product/image1.jpg',
+      'data:image/jpeg;base64,/9j/photo1',
+      'https://external.com/product.jpg',
+      'data:image/png;base64,iVBORw0',
+      undefined,
+      null,
+    ];
+    const result = filterVisionImageUris(mixed);
+    expect(result).toHaveLength(2);
+    expect(result).toEqual([
+      'data:image/jpeg;base64,/9j/photo1',
+      'data:image/png;base64,iVBORw0',
+    ]);
+  });
+
+  it('caps output at 3 items even when more data: URIs are present', () => {
+    const uris = Array.from({ length: 6 }, (_, i) => `data:image/jpeg;base64,photo${i}`);
+    expect(filterVisionImageUris(uris)).toHaveLength(3);
+  });
+
+  it('returns exactly 3 items when given 3 valid URIs', () => {
+    const uris = ['data:image/jpeg;base64,a', 'data:image/jpeg;base64,b', 'data:image/jpeg;base64,c'];
+    expect(filterVisionImageUris(uris)).toHaveLength(3);
+  });
+});
+
+// ------- STORY-108 two-turn regression -------
+
+describe('STORY-108 regression: two-turn scenario with Mobileland URLs', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  const TEST_TIMEOUT = 1000;
+
+  /**
+   * Simulates the handleChatSend logic from AgentChat.tsx:
+   *   const imageUris = filterVisionImageUris(products.map(p => p.imageDataUri))
+   *   if (!imageAnalysisRan && imageUris.length > 0) { ... analyzeProductImages ... }
+   * Returns the updated imageAnalysisRan flag.
+   */
+  async function simulateChatTurn(
+    products: Array<{ imageDataUri?: string }>,
+    imageAnalysisRan: boolean,
+  ): Promise<{ imageAnalysisRan: boolean; analysisCalledCount: number }> {
+    const imageUris = filterVisionImageUris(products.map((p) => p.imageDataUri));
+    if (!imageAnalysisRan && imageUris.length > 0) {
+      await analyzeProductImages('test-key', imageUris);
+      return { imageAnalysisRan: true, analysisCalledCount: 1 };
+    }
+    return { imageAnalysisRan, analysisCalledCount: 0 };
+  }
+
+  it('turn 1 with Mobileland URLs: imageUris is empty → analyzeProductImages never called', async () => {
+    const products = [
+      { imageDataUri: 'https://mobileland.me/catalog/product/m/a/main.jpg' },
+      { imageDataUri: 'https://mobileland.me/catalog/product/s/e/side.jpg' },
+    ];
+
+    const { imageAnalysisRan } = await simulateChatTurn(products, false);
+
+    expect(mockChatCompletion).not.toHaveBeenCalled();
+    expect(imageAnalysisRan).toBe(false);
+  }, TEST_TIMEOUT);
+
+  it('turn 2 after Mobileland-only turn 1: still no vision API call on second prompt', async () => {
+    const products = [
+      { imageDataUri: 'https://mobileland.me/catalog/product/m/a/main.jpg' },
+    ];
+
+    // Turn 1
+    const turn1 = await simulateChatTurn(products, false);
+    expect(mockChatCompletion).not.toHaveBeenCalled();
+
+    // Turn 2 — imageAnalysisRan is still false (was never set), but imageUris is still empty
+    const turn2 = await simulateChatTurn(products, turn1.imageAnalysisRan);
+
+    expect(mockChatCompletion).not.toHaveBeenCalled();
+    expect(turn2.imageAnalysisRan).toBe(false);
+  }, TEST_TIMEOUT);
+
+  it('turn 1 with real data: URIs runs vision, turn 2 is skipped (imageAnalysisRan guard)', async () => {
+    const products = [
+      { imageDataUri: 'data:image/jpeg;base64,/9j/photo1' },
+      { imageDataUri: 'data:image/jpeg;base64,/9j/photo2' },
+    ];
+
+    mockChatCompletion.mockResolvedValue(makeResponse(JSON.stringify(VALID_ANALYSIS)));
+
+    // Turn 1 — should call analyzeProductImages once
+    const turn1 = await simulateChatTurn(products, false);
+    expect(mockChatCompletion).toHaveBeenCalledTimes(1);
+    expect(turn1.imageAnalysisRan).toBe(true);
+
+    vi.clearAllMocks();
+
+    // Turn 2 — imageAnalysisRan is true → guard blocks re-analysis
+    const turn2 = await simulateChatTurn(products, turn1.imageAnalysisRan);
+    expect(mockChatCompletion).not.toHaveBeenCalled();
+    expect(turn2.imageAnalysisRan).toBe(true);
+  }, TEST_TIMEOUT);
+
+  it('mixed products: only data: URIs reach vision, Mobileland URLs are dropped', async () => {
+    // Realistic scenario after catalog_filter: selected products have Mobileland URLs
+    // but one has an uploaded user photo
+    const products = [
+      { imageDataUri: 'https://mobileland.me/catalog/product/m/a/phone1.jpg' },
+      { imageDataUri: 'data:image/jpeg;base64,/9j/user-uploaded-photo' },
+      { imageDataUri: 'https://mobileland.me/catalog/product/s/e/phone2.jpg' },
+    ];
+
+    mockChatCompletion.mockResolvedValue(makeResponse(JSON.stringify(VALID_ANALYSIS)));
+
+    const { imageAnalysisRan } = await simulateChatTurn(products, false);
+
+    expect(imageAnalysisRan).toBe(true);
+    expect(mockChatCompletion).toHaveBeenCalledTimes(1);
+
+    // Verify the API was called with only the data: URI
+    const callArgs = mockChatCompletion.mock.calls[0];
+    const messageContent = callArgs![1].messages[0]!.content as Array<{ type: string; image_url?: { url: string } }>;
+    const imageBlocks = messageContent.filter((b) => b.type === 'image_url');
+    expect(imageBlocks).toHaveLength(1);
+    expect(imageBlocks[0]!.image_url!.url).toBe('data:image/jpeg;base64,/9j/user-uploaded-photo');
+  }, TEST_TIMEOUT);
 });

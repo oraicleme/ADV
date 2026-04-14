@@ -257,6 +257,56 @@ describe('parseExcelBuffer', () => {
     });
   });
 
+  describe('numeric codes (numbers stored as text)', () => {
+    it('converts a JS number code to string (xlsx raw=true behaviour)', () => {
+      // SheetJS returns 1074427 (number) when the Excel cell is a plain number type
+      const rows = [{ Code: 1074427, Name: 'Auto držač Denmen DH02', Price: 5.45 }];
+      const result = parseExcelBuffer(makeExcelBuffer(rows));
+      expect(result.products).toHaveLength(1);
+      expect(result.products[0].code).toBe('1074427');
+    });
+
+    it('converts an integer-like float code without decimal (1074427.0 → "1074427")', () => {
+      const rows = [{ Code: 1074427.0, Name: 'Phone holder', Price: 3.99 }];
+      const result = parseExcelBuffer(makeExcelBuffer(rows));
+      expect(result.products[0].code).toBe('1074427');
+    });
+
+    it('preserves string numeric codes unchanged', () => {
+      // SheetJS returns "1074427" (string) when the cell is text-type
+      const rows = [{ Code: '1074427', Name: 'Auto držač', Price: 3.99 }];
+      const result = parseExcelBuffer(makeExcelBuffer(rows));
+      expect(result.products[0].code).toBe('1074427');
+    });
+
+    it('trims whitespace from numeric string codes', () => {
+      const rows = [{ Code: ' 1074427 ', Name: 'Phone holder', Price: 3.99 }];
+      const result = parseExcelBuffer(makeExcelBuffer(rows));
+      expect(result.products[0].code).toBe('1074427');
+    });
+
+    it('strips non-breaking spaces from codes', () => {
+      // \u00A0 is inserted by some Excel exporters
+      const rows = [{ Code: '\u00A01074427\u00A0', Name: 'Phone holder', Price: 3.99 }];
+      const result = parseExcelBuffer(makeExcelBuffer(rows));
+      expect(result.products[0].code).toBe('1074427');
+    });
+
+    it('handles multiple numeric-code rows matching a full catalog excerpt', () => {
+      const rows = [
+        { Code: 1074427, Name: 'Auto držač Denmen DH02 - srebma', Price: 5.45 },
+        { Code: 1074428, Name: 'Auto držač Denmen DH02 - Tarnish', Price: 5.45 },
+        { Code: 1074429, Name: 'Auto držač Denmen DH03 - srebma', Price: 2.42 },
+        { Code: 1074430, Name: 'Auto držač Denmen DH03 - Tarnish', Price: 10.00 },
+      ];
+      const result = parseExcelBuffer(makeExcelBuffer(rows));
+      expect(result.errors).toHaveLength(0);
+      expect(result.products).toHaveLength(4);
+      expect(result.products.map((p) => p.code)).toEqual(['1074427', '1074428', '1074429', '1074430']);
+      expect(result.stats.hasProductCodes).toBe(true);
+    });
+  });
+
   describe('duplicate detection', () => {
     it('removes duplicate products by code', () => {
       const rows = [
@@ -279,5 +329,38 @@ describe('parseExcelBuffer', () => {
       expect(result.products).toHaveLength(1);
       expect(result.stats.duplicateCount).toBe(1);
     });
+  });
+});
+
+// STORY-107: Zero-Selection Start contract
+// parseExcelBuffer returns products but does NOT select them — selection is
+// the caller's responsibility. ProductDataInput must NOT auto-call
+// onSelectionChange after Excel/paste parse (zero-selection start).
+describe('STORY-107 zero-selection contract', () => {
+  it('parseExcelBuffer returns products without any selection side-effects', () => {
+    const rows = Array.from({ length: 10 }, (_, i) => ({
+      Code: `P${String(i + 1).padStart(3, '0')}`,
+      Name: `Product ${i + 1}`,
+      Price: (i + 1) * 100,
+    }));
+    const result = parseExcelBuffer(makeExcelBuffer(rows));
+    expect(result.products).toHaveLength(10);
+    // The parser returns products only — no selection state lives here.
+    // ProductDataInput must NOT call onSelectionChange with all indices.
+    // Verified by removing the auto-select call in ProductDataInput.tsx.
+    expect(result.errors).toHaveLength(0);
+  });
+
+  it('parseExcelBuffer on large catalog (100 products) returns all products — canvas starts empty', () => {
+    const rows = Array.from({ length: 100 }, (_, i) => ({
+      Code: `SKU${i + 1}`,
+      Name: `Item ${i + 1}`,
+      Price: i + 1,
+    }));
+    const result = parseExcelBuffer(makeExcelBuffer(rows));
+    expect(result.products).toHaveLength(100);
+    // With zero-selection start, selectedProductIndices.size === 0 immediately
+    // after upload — the agent uses catalog_filter on its first turn to select.
+    expect(result.stats.parsedCount).toBe(100);
   });
 });

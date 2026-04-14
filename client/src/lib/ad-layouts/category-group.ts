@@ -9,10 +9,9 @@ import {
   renderBrandLogo,
   getDisplayPrice,
   escapeHtml,
+  computeEffectiveImageHeight,
 } from './shared';
 import type { LayoutRenderer } from './types';
-
-const NATIVE_IMAGE_HEIGHT = 150;
 
 type ShowFields = ProductBlockOptions['showFields'];
 
@@ -36,8 +35,8 @@ function renderCategoryCard(product: ProductItem, imageHeight: number, showField
       : '';
 
   return [
-    '<div style="min-width:230px;background:#fff;border-radius:12px;padding:12px;border:1px solid #e5e7eb;">',
-    showFields.image ? renderImage(product, imageHeight) : '',
+    '<div style="min-width:230px;background:#fff;color:#111827;border-radius:12px;padding:12px;border:1px solid #e5e7eb;">',
+    showFields.image ? renderImage(product, imageHeight, accentColor) : '',
     showFields.brandLogo
       ? `<div style="display:flex;align-items:center;gap:8px;min-height:20px;margin-top:8px;">${renderBrandLogo(product)}</div>`
       : '',
@@ -62,7 +61,9 @@ export const renderCategoryGroup: LayoutRenderer = (data, format, style) => {
     typeof maxProducts === 'number' && maxProducts > 0
       ? data.products.slice(0, maxProducts)
       : data.products;
-  const imageHeight = opts?.imageHeight || NATIVE_IMAGE_HEIGHT;
+  const columns = opts?.columns && opts.columns > 0 ? opts.columns : 3;
+  const rowCount = Math.max(1, Math.ceil(allProducts.length / Math.max(1, columns)));
+  const imageHeight = computeEffectiveImageHeight(format, rowCount, opts?.imageHeight);
   const showFields: ShowFields = opts?.showFields ?? DEFAULT_SHOW;
 
   const grouped = new Map<string, ProductItem[]>();

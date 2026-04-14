@@ -167,6 +167,48 @@ export default defineConfig({
   build: {
     outDir: path.resolve(import.meta.dirname, "dist/public"),
     emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes("node_modules")) return;
+          if (id.includes("framer-motion")) return "vendor-animation";
+          if (
+            id.includes("recharts") ||
+            id.includes("d3-") ||
+            id.includes("victory-")
+          )
+            return "vendor-charts";
+          if (id.includes("@dnd-kit")) return "vendor-dnd";
+          if (
+            id.includes("html2canvas") ||
+            id.includes("meilisearch") ||
+            id.includes("minisearch") ||
+            id.includes("axios")
+          )
+            return "vendor-utils";
+          if (
+            id.includes("@tanstack") ||
+            id.includes("@trpc") ||
+            id.includes("superjson") ||
+            id.includes("zod")
+          )
+            return "vendor-query";
+          if (
+            id.includes("@radix-ui") ||
+            id.includes("lucide-react") ||
+            id.includes("cmdk") ||
+            id.includes("vaul") ||
+            id.includes("embla-carousel") ||
+            id.includes("react-resizable-panels") ||
+            id.includes("input-otp") ||
+            id.includes("react-day-picker") ||
+            id.includes("sonner")
+          )
+            return "vendor-ui";
+          if (id.includes("react-dom") || id.includes("/react/")) return "vendor-react";
+        },
+      },
+    },
   },
   server: {
     host: true,

@@ -2,7 +2,11 @@
  * Thin OpenAI-compatible client for io.net Intelligence API.
  * Base: https://api.intelligence.io.solutions/api/v1
  * Auth: Authorization: Bearer <key>
+ *
+ * STORY-192: Failures throw {@link LlmCallError} with provider/kind/model for reports and future non–io.net backends.
  */
+
+import { LlmCallError } from './llm-call-error';
 
 const BASE_URL = 'https://api.intelligence.io.solutions/api/v1';
 const MODELS_TIMEOUT_MS = 30_000;
@@ -88,29 +92,44 @@ export interface ChatCompletionResponse {
  * Use this to verify which reasoning and vision models are available.
  */
 export async function listModels(apiKey: string): Promise<IonetModel[]> {
-  const res = await fetchWithTimeout(
-    `${BASE_URL}/models`,
-    {
+  let res: Response;
+  try {
+    res = await fetchWithTimeout(`${BASE_URL}/models`, {
       method: 'GET',
       headers: {
         Authorization: `Bearer ${apiKey}`,
       },
       timeoutMs: MODELS_TIMEOUT_MS,
-    }
-  );
+    });
+  } catch (e) {
+    throw new LlmCallError({
+      provider: 'io.net',
+      kind: 'list_models',
+      message: e instanceof Error ? e.message : String(e),
+      cause: e,
+    });
+  }
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`io.net models API error ${res.status}: ${text.slice(0, 200)}`);
+    throw new LlmCallError({
+      provider: 'io.net',
+      kind: 'list_models',
+      message: text.slice(0, 500),
+      httpStatus: res.status,
+    });
   }
 
   let parsed: unknown;
   try {
     parsed = await res.json();
   } catch (error) {
-    throw new Error(
-      `io.net models API JSON parse error: ${(error as Error).message ?? String(error)}`
-    );
+    throw new LlmCallError({
+      provider: 'io.net',
+      kind: 'list_models',
+      message: `JSON parse error: ${(error as Error).message ?? String(error)}`,
+      cause: error,
+    });
   }
 
   const data = parsed as ListModelsResponse;
@@ -129,9 +148,11 @@ export async function chatCompletion(
   apiKey: string,
   request: ChatCompletionRequest
 ): Promise<ChatCompletionResponse> {
-  const res = await fetchWithTimeout(
-    `${BASE_URL}/chat/completions`,
-    {
+  const modelId = request.model;
+
+  let res: Response;
+  try {
+    res = await fetchWithTimeout(`${BASE_URL}/chat/completions`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -139,21 +160,39 @@ export async function chatCompletion(
       },
       body: JSON.stringify({ stream: false, ...request }),
       timeoutMs: CHAT_TIMEOUT_MS,
-    }
-  );
+    });
+  } catch (e) {
+    throw new LlmCallError({
+      provider: 'io.net',
+      kind: 'chat_completion',
+      modelId,
+      message: e instanceof Error ? e.message : String(e),
+      cause: e,
+    });
+  }
 
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`io.net API error ${res.status}: ${text.slice(0, 200)}`);
+    throw new LlmCallError({
+      provider: 'io.net',
+      kind: 'chat_completion',
+      modelId,
+      message: text.slice(0, 500),
+      httpStatus: res.status,
+    });
   }
 
   let parsed: unknown;
   try {
     parsed = await res.json();
   } catch (error) {
-    throw new Error(
-      `io.net API JSON parse error: ${(error as Error).message ?? String(error)}`
-    );
+    throw new LlmCallError({
+      provider: 'io.net',
+      kind: 'chat_completion',
+      modelId,
+      message: `JSON parse error: ${(error as Error).message ?? String(error)}`,
+      cause: error,
+    });
   }
 
   return parsed as ChatCompletionResponse;

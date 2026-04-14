@@ -128,6 +128,8 @@ interface LogoUploaderProps {
   savedBrandLogos?: SavedBrandLogoEntry[];
   /** Current brand logo data URIs (from uploads or selected saved) */
   currentBrandLogoDataUris?: string[];
+  /** STORY-114: Remove brand logo from ad by index (does not remove from saved library) */
+  onRemoveBrandLogoFromAd?: (index: number) => void;
   onSelectSavedBrandLogo?: (id: string) => void;
   onSaveCurrentBrandLogos?: (tags?: string[]) => void;
   onRemoveSavedBrandLogo?: (id: string) => void;
@@ -148,6 +150,7 @@ export default function LogoUploader({
   isSavedLogosFull = false,
   savedBrandLogos = [],
   currentBrandLogoDataUris = [],
+  onRemoveBrandLogoFromAd,
   onSelectSavedBrandLogo,
   onSaveCurrentBrandLogos,
   onRemoveSavedBrandLogo,
@@ -361,9 +364,44 @@ export default function LogoUploader({
         </div>
       )}
 
+      {/* STORY-114: Brand logos in your ad — remove any (even all) to publish under company logo only */}
+      {currentBrandLogoDataUris.length > 0 && onRemoveBrandLogoFromAd && (
+        <div className="mb-4 rounded-lg border border-purple-500/20 bg-purple-500/5 p-3">
+          <div className="mb-1.5 flex items-center gap-1.5 text-xs font-semibold uppercase tracking-widest text-gray-500">
+            <ImageIcon className="h-3.5 w-3.5 text-purple-500" />
+            Brand logos in your ad
+          </div>
+          <p className="mb-2 text-[11px] text-gray-500">Remove any or all to show only your company logo.</p>
+          <ul className="flex flex-wrap gap-2" role="list" aria-label="Brand logos in your ad">
+            {currentBrandLogoDataUris.map((dataUri, index) => (
+              <li
+                key={`${index}-${dataUri.slice(0, 40)}`}
+                className="flex items-center gap-1.5 rounded-lg border border-white/10 bg-white/5 px-2 py-1.5"
+              >
+                <img
+                  src={dataUri}
+                  alt=""
+                  className="h-8 w-8 shrink-0 rounded border border-white/10 object-contain bg-white/5"
+                />
+                <span className="text-xs text-gray-400">#{index + 1}</span>
+                <button
+                  type="button"
+                  onClick={() => onRemoveBrandLogoFromAd(index)}
+                  data-testid={`remove-brand-logo-from-ad-${index}`}
+                  aria-label={`Remove brand logo ${index + 1} from ad`}
+                  className="rounded p-0.5 text-gray-500 hover:bg-red-500/10 hover:text-red-400"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
       <LogoUploadZone
         label="Brand Logos"
-        sublabel="Optional — brand/product logos (Samsung, Nike, etc.)"
+        sublabel="Optional — add none, one, or several; remove any in your ad to show only company logo"
         type="brand"
         testId="brand-logo-input"
         icon={<ImageIcon className="h-3.5 w-3.5 text-purple-500" />}

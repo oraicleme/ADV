@@ -9,9 +9,8 @@ import {
   renderBrandLogo,
   getDisplayPrice,
   escapeHtml,
+  computeEffectiveImageHeight,
 } from './shared';
-
-const NATIVE_IMAGE_HEIGHT = 180;
 
 function getGridColumns(count: number): number {
   if (count <= 1) return 1;
@@ -38,8 +37,8 @@ function renderCard(product: ProductItem, imageHeight: number, showFields: ShowF
       : '';
 
   return [
-    '<div style="background:#fff;border-radius:14px;padding:14px;box-shadow:0 2px 8px rgba(0,0,0,0.06);">',
-    showFields.image ? renderImage(product, imageHeight) : '',
+    '<div style="background:#fff;color:#111827;border-radius:14px;padding:14px;box-shadow:0 2px 8px rgba(0,0,0,0.06);">',
+    showFields.image ? renderImage(product, imageHeight, accentColor) : '',
     showFields.brandLogo
       ? `<div style="display:flex;align-items:center;gap:8px;min-height:20px;margin-top:10px;">${renderBrandLogo(product)}</div>`
       : '',
@@ -65,7 +64,12 @@ export const renderMultiGrid: LayoutRenderer = (data, format, style) => {
       ? data.products.slice(0, maxProducts)
       : data.products;
   const columns = opts?.columns && opts.columns > 0 ? opts.columns : getGridColumns(allProducts.length);
-  const imageHeight = opts?.imageHeight || NATIVE_IMAGE_HEIGHT;
+  const rowCount = Math.ceil(allProducts.length / Math.max(1, columns));
+  const imageHeight = computeEffectiveImageHeight(
+    format,
+    rowCount,
+    opts?.imageHeight
+  );
   const showFields: ShowFields = opts?.showFields ?? {
     image: true, code: true, name: true, description: true,
     originalPrice: true, price: true, discountBadge: true, brandLogo: true,

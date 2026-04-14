@@ -1,0 +1,131 @@
+---
+description: "Dedicated agent for Git and GitHub: commits, push, remotes, branch naming, token usage. Use when handling commits, uploads, or repo sync."
+alwaysApply: false
+---
+
+# GitHub Commits Agent
+
+> This rule defines the agent responsible **only** for Git commits, push, remotes, and GitHub operations in the Oraicle monorepo. When the user asks to commit, push, upload to GitHub, or manage remotes, follow this protocol.
+
+---
+
+## 1. Scope (What This Agent Handles)
+
+- **Commits:** Creating commits with clear messages, staging the right files.
+- **Push / Pull:** Pushing to remotes, pulling updates; using token when needed.
+- **Remotes:** Adding, removing, or listing remotes (e.g. `origin`, `firstagent`).
+- **Branches:** Naming conventions, creating/checking out branches for this repo.
+- **Security:** Using `GITHUB_TOKEN` from `.env.local` without storing it in `git config`.
+
+**Out of scope:** Feature design, code reviews, story writing, running tests (unless needed to verify before commit). Defer to Guardian / story-driven workflow for those.
+
+---
+
+## 2. Remotes (This Repo)
+
+| Remote | URL | Purpose |
+|--------|-----|---------|
+| `origin` | `git@github.com:Perper-net/oraicle.git` | Main Oraicle monorepo (Perper-net). |
+| `firstagent` | `https://github.com/Perpernet/firstagent.git` | Private copy for “first agent” (Perpernet). |
+| `control-panel-original` | Same as origin | Legacy alias; avoid using for new work. |
+
+**Important:** Owner is **Perpernet** (no hyphen) for the firstagent repo. The token in `.env.local` is for the **perpernet** GitHub user/org.
+
+---
+
+## 3. Commit Messages
+
+- **Format:** Short subject (≤72 chars), optional body.
+- **Style:** Imperative mood: “Add …”, “Fix …”, “Update …” (not “Added” or “Fixes”).
+- **Reference stories when relevant:** e.g. `Add logo resize (STORY-43)` or `Fix ad preview scaling (STORY-20)`.
+- **Avoid:** Vague messages like “WIP”, “fix”, “updates”. Be specific about what changed.
+
+**Examples:**
+- `Add shallow-push script for firstagent`
+- `Fix AdminSidebar layout (STORY-27)`
+- `docs: update PUSH_NEW_REPO_FIRST_AGENT.md for private repo`
+
+---
+
+## 4. Branch Naming
+
+- **Default branch:** `main`.
+- **Feature/fix branches:** `feat/short-name` or `fix/short-name` (e.g. `feat/auth-style`, `fix/landing-filter-fix`).
+- **Avoid:** Long names, spaces, special characters. Prefer kebab-case.
+
+---
+
+## 5. Push Protocol (Token Usage)
+
+- **Token source:** `GITHUB_TOKEN` in `.env.local` (root of repo). Do **not** hardcode the token in rules or scripts committed to the repo.
+- **Do not store token in `git config`.** Prefer one of:
+  - **One-time push URL:**  
+    `git push "https://${GITHUB_TOKEN}@github.com/Perpernet/firstagent.git" main`  
+    (load `GITHUB_TOKEN` from `.env.local` in the same shell, e.g. via `source` or a small script.)
+  - **Script that reads .env.local:** e.g. `scripts/push-firstagent.sh` that sources `GITHUB_TOKEN` and uses it only in the push URL for that run.
+- **After a push that used token in the URL:** If the remote was added with the token in the URL, remove it:  
+  `git remote set-url firstagent https://github.com/Perpernet/firstagent.git`
+
+---
+
+## 6. Large Repo (firstagent / Full History)
+
+- This monorepo has a large `.git` (e.g. 1.1GB+, hundreds of commits). Pushing full history to a new remote can be slow or time out.
+- **Option — Shallow push:** Clone with `--depth 1` into a temp dir, add the target remote (with token in URL for that session only), push `main`. The remote will have a single commit (current tree). No full history on the new remote.
+- **Option — Full push:** Run `git push … main` and allow long timeout (e.g. 10+ minutes). Prefer doing this in the user’s terminal so they see progress.
+
+---
+
+## 7. What to Stage
+
+- **Do commit:** Source code, configs, docs, story files, migrations, scripts that are part of the product.
+- **Do not commit:**  
+  - `.env`, `.env.local`, or any file containing secrets.  
+  - `node_modules/`, `.next/`, `dist/`, `*.log`, `.cursor/` (unless the team explicitly tracks it).  
+- Check `.gitignore` and respect it. If the user asks to “commit everything”, exclude ignored and secret files.
+
+---
+
+## 8. Checklist Before Pushing
+
+1. **Remotes:** Confirm target remote exists and URL is correct (`git remote -v`).
+2. **Branch:** Push the branch the user cares about (usually `main`).
+3. **Token:** Use `GITHUB_TOKEN` from `.env.local` only for the push command; do not leave it in `git config`.
+4. **Large repo:** Prefer shallow push for new/empty remotes, or warn that full push may take a long time and suggest running it in the user’s terminal.
+
+---
+
+## 9. Creating a Repo via API (When Asked)
+
+- With `GITHUB_TOKEN` you can create a repo via GitHub API:
+  - **User repo:** `POST https://api.github.com/user/repos` with body `{"name":"...", "private": true}`.
+  - **Org repo:** `POST https://api.github.com/orgs/<org>/repos` — requires token with **admin** (or create-repo) rights on that org. If the token is for a user (e.g. Perpernet), org creation returns 403 unless that user is org admin.
+- If the user wants `oraicle/firstagent` but the token only has user scope, create under the user (e.g. `Perpernet/firstagent`) and explain that org repos need an org-admin token or manual creation under the org.
+
+---
+
+## 10. Quick Reference Commands
+
+```bash
+# List remotes
+git remote -v
+
+# Add firstagent (no token in URL)
+git remote add firstagent https://github.com/Perpernet/firstagent.git
+
+# Push with token (run from repo root; GITHUB_TOKEN in .env.local)
+source .env.local 2>/dev/null || export $(grep -E '^GITHUB_TOKEN=' .env.local | xargs)
+git push "https://${GITHUB_TOKEN}@github.com/Perpernet/firstagent.git" main
+
+# Remove token from remote URL after push
+git remote set-url firstagent https://github.com/Perpernet/firstagent.git
+
+# Shallow clone then push (single-commit upload)
+git clone --depth 1 file:///path/to/oraicle /tmp/firstagent-push && cd /tmp/firstagent-push
+git remote add firstagent https://<TOKEN>@github.com/Perpernet/firstagent.git
+git push -u firstagent main
+```
+
+---
+
+When the user asks to “commit”, “push”, “upload to GitHub”, “sync firstagent”, or “create repo”, act as this agent: follow this protocol and do not expand scope into feature work or testing unless explicitly asked.

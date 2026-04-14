@@ -6,7 +6,6 @@
  * All failures are silent — vision is optional enrichment, never a blocker.
  */
 
-import { chatCompletion } from './ionet-client';
 
 // ------- Types -------
 
@@ -123,6 +122,23 @@ export async function resizeImageDataUri(dataUri: string, maxPx = 512): Promise<
 }
 
 /**
+ * STORY-108: Filters a list of (possibly undefined) image URIs to only include base64
+ * data URIs suitable for vision analysis. Caps at 3 images.
+ *
+ * External HTTP/HTTPS URLs (e.g. Mobileland catalog images at `https://mobileland.me/...`)
+ * are deliberately excluded: the io.net vision model server cannot fetch cross-origin URLs,
+ * causing up to 45s hangs per attempt × 2 fallback models = 90s of dead time per chat turn.
+ * Only user-uploaded base64 `data:` URIs are safe to send.
+ */
+export function filterVisionImageUris(
+  uris: (string | undefined | null)[],
+): string[] {
+  return uris
+    .filter((uri): uri is string => typeof uri === 'string' && uri.startsWith('data:'))
+    .slice(0, 3);
+}
+
+/**
  * Selects up to 3 images from the array using first/middle/last strategy
  * to cover product variety without exceeding token limits.
  */
@@ -178,6 +194,7 @@ async function callVisionModel(
     image_url: { url: uri },
   }));
 
+  const { chatCompletion } = await import('./ionet-client');
   const response = await chatCompletion(apiKey, {
     model,
     messages: [

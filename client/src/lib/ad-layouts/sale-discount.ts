@@ -9,9 +9,9 @@ import {
   renderBrandLogo,
   getDisplayPrice,
   escapeHtml,
+  computeEffectiveImageHeight,
 } from './shared';
 
-const NATIVE_IMAGE_HEIGHT = 170;
 const NATIVE_COLUMNS = 2;
 
 type ShowFields = ProductBlockOptions['showFields'];
@@ -49,8 +49,8 @@ function renderSaleCard(product: ProductItem, imageHeight: number, showFields: S
       : '';
 
   return [
-    '<div style="background:#fff;border-radius:14px;padding:14px;box-shadow:0 2px 8px rgba(0,0,0,0.06);">',
-    showFields.image ? renderImage(product, imageHeight) : '',
+    '<div style="background:#fff;color:#111827;border-radius:14px;padding:14px;box-shadow:0 2px 8px rgba(0,0,0,0.06);">',
+    showFields.image ? renderImage(product, imageHeight, accentColor) : '',
     showFields.brandLogo
       ? `<div style="display:flex;align-items:center;gap:8px;min-height:20px;margin-top:10px;">${renderBrandLogo(product)}</div>`
       : '',
@@ -74,7 +74,8 @@ export const renderSaleDiscount: LayoutRenderer = (data, format, style) => {
       ? data.products.slice(0, maxProducts)
       : data.products;
   const columns = opts?.columns && opts.columns > 0 ? opts.columns : NATIVE_COLUMNS;
-  const imageHeight = opts?.imageHeight || NATIVE_IMAGE_HEIGHT;
+  const rowCount = Math.ceil(allProducts.length / Math.max(1, columns));
+  const imageHeight = computeEffectiveImageHeight(format, rowCount, opts?.imageHeight);
   const showFields: ShowFields = opts?.showFields ?? DEFAULT_SHOW;
 
   const cards = allProducts

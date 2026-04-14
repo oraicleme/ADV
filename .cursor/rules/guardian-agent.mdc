@@ -1,0 +1,458 @@
+---
+description: "Guardian agent protocol + project RAG — comprehensive knowledge base for reviewing, building, and debugging across the Oraicle monorepo"
+alwaysApply: false
+---
+
+# Guardian Agent Protocol & Project RAG
+
+> This file is the Retrieval-Augmented Generation (RAG) knowledge base for the Oraicle project.
+> Any agent reviewing, building, or debugging should read this first.
+
+---
+
+## 1. Monorepo Structure
+
+The repo has **two tiers**: a **root full-stack app** and **packages/** (legacy or separate deploy targets).
+
+### Root application (oraicle-retail-promo)
+
+```
+oraicle/
+├── client/               # Vite 7 + React 19 — SPA
+├── server/               # Express, tRPC 11, OAuth
+│   ├── _core/            # index.ts (Express + tRPC + Vite), context, trpc, cookies, oauth, vite
+│   └── routers/          # agents.ts, catalog.ts
+├── shared/               # Shared types and constants (e.g. @shared/const)
+├── drizzle/              # MySQL schema (drizzle/schema.ts) + migrations
+├── package.json          # Single app: dev (tsx watch server), build (vite + esbuild), test (vitest)
+├── vite.config.ts
+├── drizzle.config.ts     # dialect: mysql, schema: ./drizzle/schema.ts
+└── .env / .env.local     # Root env (see Section 8)
+```
+
+- **No pnpm-workspace at root** — root is a standalone app; `packages/` are separate.
+- **Story workflow:** `docs/stories/` and `TRACKER.md` may not exist in this workspace; when they do, follow story-driven-development rule.
+
+### Packages (optional / alternate deploy)
+
+```
+packages/
+├── landing/          # Astro — marketing site + Retail Promo Designer
+├── control-panel/    # Next.js — admin + company dashboard (tRPC 11, Drizzle)
+├── dashboard/        # Next.js — user dashboard
+├── dashboard-2/      # Next.js (alternate, Jest)
+├── core/             # Shared lib: Drizzle schema, auth, admin, payment, email
+├── auth/             # OpenAuth, JWT, QR codes
+├── ai/               # Effect-based AI integration
+├── functions/        # SST Cloudflare Workers (Hono)
+├── crons/            # Scheduled jobs
+└── docs/             # Starlight docs site
+```
+
+- **SST:** `sst.config.ts` may be absent; `.sst/` may contain platform/artifacts from another branch or deploy.
+- **Migrations:** Root uses `drizzle/` (MySQL); package-level apps may use `migrations/` (e.g. Postgres) when present.
+
+**Package manager:** pnpm at root (no workspace file); packages may use workspace in other setups.
+**Drizzle:** Root uses `drizzle-orm` (e.g. ^0.44.x) and **MySQL**; packages may use `@oraicle/core` and **Postgres**.
+
+---
+
+## 2. Tech Stack Quick Reference
+
+### Root app (oraicle-retail-promo)
+
+| Layer | Stack | Notes |
+|-------|--------|------|
+| Client | Vite 7, React 19, Tailwind 4, tRPC 11, Radix, html2canvas, xlsx, wouter | SPA served by Express in dev |
+| Server | Express, tRPC 11 (Express adapter), OAuth routes | `/api/trpc`, `/api/oauth/callback` |
+| DB | Drizzle ORM, **MySQL** (drizzle/schema.ts) | `pnpm run dev` (tsx watch server), port from `PORT` or 3000 |
+
+### Packages
+
+| Package | Framework | Key Deps | Build | Dev |
+|---------|-----------|----------|-------|-----|
+| landing | Astro + React 19 | Tailwind 4, Radix, html2canvas, xlsx | `astro build` | `astro dev --port 4321` |
+| control-panel | Next.js 15.2 | tRPC 11, Drizzle, OpenAuth, Resend, QStash, Tailwind 4 | `next build` | `next dev -p 3009` |
+| dashboard | Next.js 15.5 | tRPC 11, OpenAuth, next-intl, Turnstile | `next build` | `next dev -p 3006` |
+| core | TypeScript lib | Drizzle ORM, postgres, bcrypt, Resend, Zod | `tsc --noEmit` | — |
+
+---
+
+## 3. Auth Architecture
+
+### Admin Auth (control-panel)
+- **Cookie:** `admin_session_token`
+- **Tables:** `admin_users`, `admin_sessions` (from `@oraicle/core`)
+- **Flow:** password login → 2FA → session in DB
+- **Middleware:** `middleware.ts` checks cookie for protected routes
+- **Gate:** `isAdminEmail()` in `#/config/admin.ts` (hardcoded `ADMIN_EMAILS` list)
+- **Procedure:** `adminProcedure` = `protectedProcedure` + `isAdminEmail(ctx.session.properties.email)`
+
+### Company Tenant Auth (control-panel)
+- **Cookies:** `access_token`, `refresh_token`
+- **Provider:** OpenAuth (`@openauthjs/openauth/client`)
+- **Issuer:** `AUTH_URL` env or `auth.tru.dev.oraicle.me`
+- **Flow:** OAuth → JWT verification via `client.verify()`
+- **Procedure:** `companyProcedure` = requires session, **rejects** `isAdmin: true`, scopes by `userID`
+
+### `auth()` function (`#/app/actions.ts`)
+Checks `admin_session_token` first, then `access_token`/`refresh_token`.
+Returns `{ properties: { userID, email, role?, isAdmin } }`.
+
+---
+
+## 4. tRPC Routers
+
+### Root app (`server/routers.ts`)
+
+- **system:** `systemRouter` (from `server/_core/systemRouter.ts`)
+- **auth:** `me` (current user), `logout` (clear session cookie)
+- **agents:** `agentsRouter` (server/routers/agents.ts) — multi-agent suggestions, LLM, RAG
+- **catalog:** `catalogRouter` (server/routers/catalog.ts) — catalog management, caching, sync
+
+Context and procedures live in `server/_core/` (trpc, context). Cookie name from `@shared/const`.
+
+### control-panel (`src/server/api/root.ts`) — when present
+
+- Core: `apiToken`, `user`, `payment`, `admin`, `paymentHistory`, `creditAllocation`, `airdropAdmin`
+- Business: `customerList`, `emailCampaign`, `messaging`, `socialMedia`, `chat`, `stock`
+- Invoicing: `invoice-numbering` (sub-router)
+
+### dashboard (`src/server/api/root.ts`) — when present
+
+- `apiToken`, `user`, `payment`, `airdrop`
+
+### Procedure types (packages)
+
+- `publicProcedure` — no auth
+- `protectedProcedure` — requires session
+- `adminProcedure` — `protectedProcedure` + `isAdminEmail`
+- `companyProcedure` — session required, `isAdmin` forbidden
+
+---
+
+## 5. Database & Drizzle
+
+### Root app (MySQL)
+
+- **Schema:** `drizzle/schema.ts` — dialect **mysql** in `drizzle.config.ts`
+- **Connection:** `DATABASE_URL` or `DbUrl` (see Section 8)
+- **Important tables:** `users` (openId, name, email, role), `suggestionHistory` (RAG, agent, embedding), `suggestionAnalytics`, plus any catalog/sync tables in the same schema
+- **Migrations:** `drizzle-kit generate` / `drizzle-kit migrate` (output `./drizzle`)
+
+### Packages (Postgres when present)
+
+- **Schema sources:** `@oraicle/core` — `user`, `payment`, `api`, `admin`, `airdrop`, `price`; control-panel — `enterprise-schema`, `customer`, `email-campaign`, `invoice-numbering`, `products`
+- **Connection:** `createDrizzle` from `@oraicle/core/drizzle/index`; control-panel merges tables in `db()`; URL: `Resource.DbUrl.value` (SST) or `process.env.DATABASE_URL`
+
+### Important tables (packages)
+
+- Core: `user`, `payment`, `crypto_request`, `api_token`, `api_token_usage`
+- Admin: `admin_users`, `admin_sessions`, `admin_invitations`, `admin_roles`
+- Enterprise: `companies`, `company_users`, `documents`, `audit_logs`, `invoices`, `invoice_items`
+- Control-panel: `customers`, `customer_segments`, `email_settings`, `email_campaigns`, `products`
+
+---
+
+## 6. Import Aliases
+
+| Alias | Resolves To | Used In |
+|-------|-------------|---------|
+| `#/*` | `./src/*` | control-panel, dashboard |
+| `@oraicle/core/*` | `packages/core/src/*.ts` | all |
+| `@oraicle/auth/*` | `packages/auth/src/*/index.ts` | functions |
+| `astro:env/client` | Astro virtual module (mocked in tests) | landing |
+
+---
+
+## 7. Landing Page (Astro + React) Architecture
+
+### Hydration pattern
+- `client:load` for above-the-fold interactive components (UnifiedAiInterface, AgentChat)
+- `client:visible` for below-the-fold (ModelsSection, TokenPricing)
+
+### Retail Promo Designer (main feature)
+- **Entry:** `/agents/retail-promo` → `AgentChat.tsx`
+- **Canvas editor:** `AdCanvasEditor.tsx` — WYSIWYG for ad creatives
+- **Block types:** headline, products, badge, cta, disclaimer, logo
+- **Features:** drag-reorder, adaptive contrast, logo resize/alignment, product cards, AI edit-with-prompt
+- **Layouts:** `ad-layouts/types.ts` (FormatPreset, LayoutId, StyleOptions)
+- **Constants:** `ad-constants.ts` (ProductItem, FORMAT_PRESETS, limits)
+- **Schema:** `ad-block-schema.ts` (STORY-57) — validates all AI-proposed changes
+- **AI Edit:** `ad-canvas-ai.ts` (STORY-58) — serialize state → io.net → parse patches → validate → apply
+
+### io.net API Integration
+- **Client-side (landing):** `src/lib/ionet-client.ts` — `chatCompletion()`, `listModels()`
+- **Base URL:** `https://api.intelligence.io.solutions/api/v1`
+- **Auth:** `PUBLIC_IONET_API_KEY` || `IO_NET_API_TOKEN` || `IONET_API_KEY` (browser env)
+- **Models:** `ionet-models.ts` — `getAdCopyModels()`, `getVisionModels()` (env overrides)
+- **Default models:**
+  - Ad copy: `openai/gpt-oss-120b` (primary), `openai/gpt-oss-20b` (fallback)
+  - Vision: `meta-llama/Llama-4-Maverick-17B-128E-Instruct-FP8` (primary), `Qwen/Qwen2.5-VL-32B-Instruct` (fallback)
+- **Server-side (control-panel):** `src/lib/ionet-client.ts` — same API, `IO_NET_API_TOKEN` from server env
+
+### AI Edit with Prompt data flow
+```
+User types prompt in canvas bar
+  → serializeCanvasState() (structured JSON snapshot)
+  → buildCanvasEditPrompt() (state JSON + user instruction)
+  → io.net chatCompletion (AD_COPY model, max_completion_tokens: 400, temp: 0.2)
+  → parsePatchResponse() (extract JSON array from response)
+  → filterValidPatches() (validate each patch via ad-block-schema)
+  → applyPatches() (call React setters)
+```
+**Known failure mode:** If the model returns prose instead of JSON, `parsePatchResponse` returns [] → "No changes proposed by AI. Try rephrasing."
+
+---
+
+## 8. Environment Variables
+
+### Root app (`.env`, `.env.local` at repo root)
+
+| Variable | Purpose |
+|----------|---------|
+| `DATABASE_URL`, `DbUrl` | MySQL connection (Drizzle) |
+| `ORAICLE_API_KEY`, `ORAICLE_API_URL` | Oraicle/io.net API (e.g. `https://api.intelligence.io.solutions/api/v1`) |
+| `IO_NET_API_TOKEN` | io.net API key (optional) |
+| `NEXT_PUBLIC_BASE_URL` | App base URL (e.g. localhost:5001) |
+| `ResendKey` | Resend email (invoices, etc.) |
+| `QSTASH_URL`, `QSTASH_TOKEN`, `QstashCurrentSigningKey`, `QstashNextSigningKey` | Upstash QStash |
+| `REDIS_URL`, `REDIS_TLS`, `BULL_CONCURRENCY` | Redis + Bull queues |
+| `CHROMA_API_URL`, `CHROMA_API_KEY`, `CHROMA_TENANT_ID`, `CHROMA_DATABASE`, `CHROMA_COLLECTION` | Chroma for RAG/embeddings |
+| `ADMIN_EMAIL`, `AdminAccountId` | Admin identity |
+| `EMAIL_FROM`, `EmailDomain` | Email config |
+| `OAuthGoogleClientId`, `OAuthGoogleClientSecret` | Google OAuth |
+| `GITHUB_TOKEN` | GitHub integration |
+| `TELEGRAM_BOT_TOKEN` | Telegram bot |
+| `BRAVE_SEARCH_API_KEY`, `WEATHER_API_KEY`, `GOOGLE_TRANSLATE_API_KEY`, `PDF_PARSER_URL` | Optional services |
+| `SKIP_ENV_VALIDATION`, `DrizzleLog` | Dev/build flags |
+
+### Landing page (`packages/landing/.env`) — when present
+
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `SITE_URL` | yes | Astro site URL |
+| `DASH_URL`, `DOCS_URL`, `CHAT_URL` | yes | Cross-app links |
+| `PUBLIC_IONET_API_KEY` | optional | io.net API key (browser) |
+| `IO_NET_API_TOKEN`, `IONET_API_KEY` | optional | Alternative io.net key |
+| `PUBLIC_IONET_AD_COPY_MODEL`, `PUBLIC_IONET_VISION_MODEL` | optional | Model overrides |
+| `PUBLIC_MOBILELAND_IMAGE_BASE` | optional | Mobileland product image base URL |
+
+### Control panel — when present
+
+| Variable | Purpose |
+|----------|---------|
+| `DATABASE_URL` | Postgres connection |
+| `AUTH_URL` | OpenAuth issuer |
+| `IO_NET_API_TOKEN` | io.net key (server) |
+| `RESEND_API_KEY` | Resend email |
+| `QSTASH_TOKEN`, `QSTASH_URL` | Upstash QStash |
+| `NEXT_PUBLIC_APP_URL` | App base URL |
+| `ENCRYPTION_KEY`, `LOG_SIGNING_KEY` | Security |
+| `INSTAGRAM_ACCESS_TOKEN`, `TIKTOK_ACCESS_TOKEN` | Social media |
+| `TELEGRAM_BOT_TOKEN`, `VIBER_AUTH_TOKEN`, `WHATSAPP_ACCESS_TOKEN` | Messaging |
+
+---
+
+## 9. Test Setup
+
+| Package | Runner | Config | Command |
+|---------|--------|--------|---------|
+| landing | Vitest | `vitest.config.ts` | `npx vitest run` |
+| landing | Playwright | `playwright.config.ts` | `npx playwright test` |
+| control-panel | Vitest | `vitest.config.ts` | `npx vitest run` |
+| dashboard-2 | Jest | implicit | `npx jest` |
+
+**Test patterns:** `src/**/*.test.{ts,tsx}`
+**Setup files:** `src/test/setup.ts` — `@testing-library/jest-dom/vitest`, `URL.createObjectURL` mocks
+**Astro env mock (landing):** `src/test/mocks/astro-env.ts` aliased via vitest resolve
+
+---
+
+## 10. Common Gotchas & Fix Patterns
+
+### Import errors
+- **Wrong:** `from 'drizzle-orm'` → **Right:** `from '@oraicle/core/drizzle/index'`
+- **Wrong:** `from '../lib/something'` in tests → **Right:** check vitest aliases match tsconfig paths
+
+### Auth issues
+- `adminProcedure` uses `isAdminEmail()` (config list), NOT `admin_users` table
+- `companyProcedure` rejects `isAdmin: true` — admins cannot hit company endpoints
+- Session `userID` can be null → always add null check before DB queries
+
+### Page structure (control-panel)
+- **Wrong:** bare `'use client'` page component
+- **Right:** server component with auth check + SidebarProvider wrapper + client component
+
+### Drizzle issues
+- Insert type mismatches → use explicit insert types + `as Type as any` when needed
+- Schema split: core schemas + control-panel schemas merged in `db.ts`
+- SST prefers `Resource.DbUrl.value`; `DATABASE_URL` is fallback for local dev
+
+### io.net API
+- Two auth cookies exist: `admin_session_token` (admin) and `access_token`/`refresh_token` (company)
+- Landing uses client env (`PUBLIC_*`) for browser calls; control-panel uses server-only env
+- Models may become unavailable — always implement primary + fallback pattern
+- `max_completion_tokens: 400` may be too low for complex structured JSON responses
+
+### Astro + React
+- Use `client:load` for above-fold, `client:visible` for below-fold
+- Astro env virtual modules need mocking in vitest: `astro:env/client` → `./src/test/mocks/astro-env.ts`
+
+### Build
+- `SKIP_ENV_VALIDATION=true` for builds without full env
+- Landing may need `sst shell astro dev` for SST env injection (or just `astro dev` with `.env`)
+
+### Root vs packages
+- **Root app** uses **MySQL** and its own schema in `drizzle/schema.ts`; it does **not** use `@oraicle/core` for DB. Do not assume Postgres or core schema in root.
+- **Packages** (control-panel, etc.) may use **Postgres** and `@oraicle/core`. When working in root, use root env (e.g. `.env.local`) and root Drizzle config.
+
+---
+
+## 11. Guardian Review Protocol
+
+When asked to "check", "review", "verify", or "audit":
+
+### Step 1 — Read the Tracker
+Read `docs/stories/TRACKER.md` to understand project state (what's done, in progress, next number).
+
+### Step 2 — Run Health Checks
+```bash
+cd packages/landing && npx vitest run
+cd packages/control-panel && npx vitest run
+cd packages/control-panel && npx next build
+cd packages/landing && npx astro build
+```
+
+### Step 3 — Audit Stories
+- Read story files for in-progress and recently-done stories
+- Verify acceptance criteria are actually met (not just checked off)
+- Check for missing files (grep imports for non-existent modules)
+- Check page structure patterns (server component + auth + SidebarProvider)
+
+### Step 4 — Fix Issues
+Apply the fix patterns from Section 10. Common fixes:
+- Missing type files → create from usage
+- Wrong Drizzle imports → `@oraicle/core/drizzle/index`
+- Bare `'use client'` pages → server component wrapper
+- Session nulls → add guards
+- Missing env vars → document in `.env`
+
+### Step 5 — Prepare Next Agent
+Write `PROMPT_FOR_NEW_AGENT_STORY<N>.md` with:
+- Context: what was done, what's the state
+- Plan: concrete file changes needed
+- Gotchas: known issues to avoid
+- Completion checklist
+
+### Step 6 — Localhost Visual Verification
+```bash
+# Control Panel
+cd packages/control-panel && npx next dev -p 3009
+# → http://localhost:3009 — check: /admin-login, /customers, /campaigns, /messaging, /social-media, /email-settings
+
+# Landing Page
+cd packages/landing && npx astro dev --port 4321
+# → http://localhost:4321 — check: /, /agents/retail-promo
+```
+
+**If DB tables missing:**
+```bash
+psql "$DATABASE_URL" -f migrations/customer-lists-story7.sql
+psql "$DATABASE_URL" -f migrations/email-campaigns-story8.sql
+```
+
+### Step 7 — Report
+Format: state found → issues → fixes → current health → what's next.
+
+### Step 8 — Update this RAG (when state has changed)
+After many changes, refresh this file so it stays the project's single source of truth:
+- **Section 1:** Monorepo/root layout (client, server, shared, drizzle, packages).
+- **Section 2:** Root and package tech stacks (frameworks, build/dev commands).
+- **Section 4:** tRPC routers (root: system, auth, agents, catalog; packages as applicable).
+- **Section 5:** DB: root = MySQL + `drizzle/schema.ts`; packages = Postgres + `@oraicle/core` when present.
+- **Section 8:** Env vars (root `.env.local` vs package-level `.env`).
+- **Section 10:** New gotchas (root vs packages, import paths, auth, build).
+- **Section 14:** Current State — date, layout summary, root feature set (from todo.md or code), package status, next story number if stories exist.
+
+---
+
+## 12. Story Workflow Reference
+
+Every feature follows: **Story → Code → Test → Done**
+
+- Stories live in `docs/stories/STORY-<N>-<slug>.md`
+- Tracker: `docs/stories/TRACKER.md` (next story number at top)
+- Status values: 🟡 In Progress, ✅ Done, 🔴 Blocked, ⚫ Cancelled
+- Tests: write alongside implementation, every AC needs a test
+- Mark done: update story status, check off ACs, fill Files Changed, update TRACKER
+
+---
+
+## 13. The Vision
+
+**Target user:** Retail/wholesale business owner (non-technical, no AI experience).
+
+**The promise:** Upload products → upload logos → one click → get branded ads → distribute via email, Viber, WhatsApp, Instagram.
+
+**Zero prompts. Zero design skills. Zero AI knowledge.**
+
+### MP/VP Pricing (Balkan market differentiator)
+- **MP (maloprodaja):** retail price, includes VAT, for end consumers
+- **VP (veleprodaja):** wholesale price, without VAT, for B2B
+- System supports dual price lists, segment-based generation, and automatic list targeting
+
+---
+
+## 14. Current State (last updated: 2026-03-24 — STORY-209 canvas swap product from catalog; **next story number: 210**)
+
+**Recorded from live repo.** Use this section as the RAG snapshot; re-run Guardian protocol after large changes to refresh. **`docs/stories/TRACKER.md` is authoritative** for the next story id; Section 14 repeats it for agents that read only this file. Vitest `client/src/lib/guardian-rag-tracker-sync.test.ts` fails if they diverge.
+
+### What to do next (how to move the project)
+
+1. **Read the handoff first:** **`docs/handoff-new-agent-2026-03-21.md`** — sprint context, Phase A quality bar (**`pnpm run smoke`**, **`docs/qa-manual-smoke-retail-promo.md`**), Phase C product backlog notes, STORY-198 env for optional Stage-1 LLM expansion, dev auth expectations.
+2. **New feature work:** **`TRACKER.md`** → **Next story number: 210**; **📋 Pending (active backlog)** is **empty** — the next increment is an **intentional new story** (product scope), not an auto-filled queue. Follow **Story → Code → Test** (`.cursor/rules/story-driven-development.mdc`): create **`docs/stories/STORY-210-<slug>.md`**, then implement + tests, then update tracker and mark done.
+3. **Do not prioritize without PM:** **`TRACKER.md` → 🟦 Parked (legacy)** (e.g. 98–117, 126) and **📦 Legacy aspirational** (93–97). Superseded or deferred — see **`docs/deferred-features-registry.md`**. Search “Faza C” follow-ups (e.g. optional server-side rule index): **`docs/search-rules-rag-roadmap.md`**.
+4. **Technical baseline (search):** Two pipelines (MiniSearch manual vs Meilisearch → LLM agent path), STORY-196 rules, STORY-200/201 feedback + RAG-lite — **`docs/search-architecture-technical-hr.md`**; summary roadmaps **`docs/search-improvements-roadmap.md`**, **`docs/search-rules-rag-roadmap.md`**.
+5. **Docs / investor surface:** When shipping user-visible behavior, keep **`docs/system-overview-vc.md`** aligned (incl. § Operations: smoke, manual QA, deferred links).
+6. **Maintenance:** If **`ionet-models.ts`** and **`agent-chat-engine.ts`** presets (`CHAT_MODEL_PAIR_BY_MODE` / `MODEL_MAP`) diverge, reconcile defaults (called out in handoff §4 gaps).
+
+### Layout
+
+- **Root app (oraicle-retail-promo)** is the primary full-stack app: Vite 7 + Express, React 19, tRPC 11, MySQL (Drizzle). Entry: `pnpm run dev` → server at `PORT` or 3000; client via Vite in dev.
+- **packages/** exists (landing Astro, control-panel Next.js, core, auth, ai, functions, crons, docs) but **no pnpm-workspace at root**; root is standalone. Packages may be legacy or separate deploy targets.
+- **Stories:** `docs/stories/STORY-*.md` + **`docs/stories/TRACKER.md`** — story-driven workflow; **next story number: 210** (verify `TRACKER.md` before starting work). **Search improvements:** **STORY-196…201** done; module phases in **`docs/search-rules-rag-roadmap.md`**; summary `docs/search-improvements-roadmap.md`. **STORY-202:** `docs/system-overview-vc.md` reflects search rules + RAG-lite; dev auth note in **`docs/handoff-new-agent-2026-03-21.md`**; guard test `vc-system-overview-doc.test.ts`. **STORY-203:** **`pnpm run smoke`** (`vitest run && vite build`); **`docs/deferred-features-registry.md`** (Faza C, STORY-197 optional, 93–97); **`docs/qa-manual-smoke-retail-promo.md`**; tracker **Pending** vs **Legacy aspirational**; `repo-smoke-script.test.ts`. **STORY-204:** VC doc § Operations + links to smoke / manual QA / deferred registry (same `vc-system-overview-doc.test.ts`). **STORY-205:** `INDUSTRY_VERTICAL_RESERVE_FOR_CHROME_PX` + industry contract tests (`shared.test.ts`, `ad-templates.test.ts`); **`docs/industry-standard-manner.md`**.
+- **Settings roadmap (client):** `docs/left-panel-settings-roadmap.md` — **P0–P5 shipped** in root client: Workspace Settings accordion (`WorkspaceSettingsPanel`), Connections BYOK (`llm-api-key-storage`), Import catalog API stub (`catalog-api-settings-storage`), Search min-score (`search-settings-storage`), Agent brief (`agent-brief-storage` + merge in `agent-chat-engine.ts`), Design defaults (`design-defaults-storage` + `AgentChat` initial state + apply event). **STORY-183:** Settings → **Models** (io.net `listModels` + tags), **Prompts** (merged system prompts); chat header **Fast / Smart / Custom** (`ChatModelMode` + `modelPair` in `agent-chat-engine.ts`); collapsible **Workspace tools** (`ChatWorkspaceTools.tsx`) for search sliders, brief, BYOK. **STORY-185:** Workspace tools embed uses a **`.dark`** scope so shadcn tokens match the chat strip (Settings tab unchanged). **STORY-186:** Chat **At a glance** strip (catalog configured + design defaults summary); Models list copy references Chat + Connections for API key. **STORY-187:** Chat workspace **collapsible a11y** — `aria-expanded` / `data-state` on Radix Collapsible; **focus-visible** ring + `aria-hidden` chevron; tests in `ChatWorkspaceTools.a11y.test.ts`.
+
+### Stories & tracker (snapshot)
+
+- **Done (recent retail-promo / search / chat):** STORY-181 … STORY-187, **STORY-189**, **STORY-191**, **STORY-192**, **STORY-193** (Excel/paste/catalog API sync: `filterImportedCatalogByActiveSearch` when Add Products search is non-empty — same MiniSearch scoring as the Products panel; empty match → user error + `catalog_import_filtered` log), **STORY-194** (Products tab opens → seed shared catalog search from last agent `catalog_filter` query via `extractLastCatalogFilterQueryText`), **STORY-195** (`AGENT_SEARCH_ARCHITECTURE_PROMPT` in `agent-chat-engine.ts` — grounded search + intent routing for merchant/developer explanations). **STORY-196…201** — search rules, normalization, Stage-1 expansion, hybrid routing, **STORY-200** feedback (`search-feedback.ts`, thumbs), **STORY-201** RAG-lite (`search-rules-rag-lite.ts`, merge in `apply-search-rules.ts`, Search settings toggle; phased doc `docs/search-rules-rag-roadmap.md`). **STORY-202** — `docs/system-overview-vc.md` search stack + dev auth in handoff; `vc-system-overview-doc.test.ts`. **STORY-203** — smoke script, deferred-features registry, QA manual smoke doc, tracker triage for 93–97, `repo-smoke-script.test.ts`, wider `product-index` perf budgets. **STORY-204** — VC doc § Operations (smoke, manual QA, deferred registry links). **STORY-205** — industry layout explicit chrome reserve + contract tests; `industry-standard-manner.md`. **STORY-206** — Products tab **List** scope (`ProductSelectionCanvasScope`: all / not on ad / only on ad); `product-selection-panel-filters.ts`, `ProductSelectionPanel` Select. **STORY-208** — Products tab **Only list search matches** (default on). **STORY-209** — canvas **Swap product** (`ProductSwapPopover`, `filterCatalogIndicesBySearchQuery`, shared workspace search + `listOnlySearchMatches`). Older done rows: STORY-171 … **STORY-180** (see `TRACKER.md` Done table).
+- **Pending (search roadmap 2026-03):** _(none — 196–201 shipped.)_ Roadmaps: `docs/search-improvements-roadmap.md`, **`docs/search-rules-rag-roadmap.md`** (future Meilisearch index for rules = optional); baseline: `docs/search-architecture-technical-hr.md`.
+- **Parked (legacy — not the active sprint):** STORY-98, 99, 100, 103, 114–117, 126 — see `TRACKER.md` **🟦 Parked**; superseded in practice by workspace chat (**183+**) and agent/search (**189–195**). Reopen only with PM. Sprint phases and quality bar: **`docs/handoff-new-agent-2026-03-21.md`**; see **§ What to do next** above.
+- **In Progress:** often **empty**; new work uses **next story number** in `TRACKER.md` header (**📋 Pending** may be empty — that is expected).
+- **Legacy aspirational (tracker):** STORY-93–97 — see **`docs/deferred-features-registry.md`**; not scheduled unless PM. **Active Pending:** empty (see `TRACKER.md`).
+
+### Root app — Retail Promo / agent (client highlights)
+
+- **`AgentChat.tsx`:** Canvas state, `sendChatMessage` / proactive suggestions, BYOK via `getResolvedLlmApiKey()`, workspace **agent brief**, **design defaults**, **Workspace tools** strip, model mode **fast | smart | custom** with optional `modelPair`. **STORY-189:** **`RETAIL_PROMO_CHAT_STARTERS`**. **STORY-191:** `logRetailPromoEvent('ai_chat_message', { emptyActionsReason })` when the model returns zero actions (privacy-safe enum). **STORY-195:** `agent-chat-engine.ts` appends **`AGENT_SEARCH_ARCHITECTURE_PROMPT`** to the main system prompt so informational answers cite Meilisearch / MiniSearch / LLM rerank without inventing stacks. **STORY-199:** smart LLM skip uses **`shouldSkipSelectProductsLLM`** (`meilisearch-smart-routing.ts`) with `catalog.getSearchProvider` (`hybridEnabled`, `confidenceThreshold`). **STORY-200:** `search-feedback.ts` — `lastAgentCatalogSelectionRef` + `setSelectedProductIndicesFromUser` (implicit deselect) / thumbs → `search_feedback_explicit`.
+- **`AdCanvasEditor.tsx`:** WYSIWYG, products, export, workspace Settings tab with section navigation. **STORY-209:** product image → **Change photo** / **Swap product** (catalog row picker aligned with MiniSearch + Products tab “only search matches”).
+- **Workspace settings modules (localStorage, browser-local):** `llm-api-key-storage.ts`, `search-settings-storage.ts`, `search-rules-rag-lite-settings.ts` (**STORY-201**), `catalog-api-settings-storage.ts`, `agent-brief-storage.ts`, `design-defaults-storage.ts`, `ionet-model-preferences-storage.ts`.
+- **Model lists:** `ionet-models.ts` / io.net API lists available models; **`CHAT_MODEL_PAIR_BY_MODE` / `MODEL_MAP` in `agent-chat-engine.ts`** define chat presets — do not assume they match without checking both. **STORY-192:** `ionet-client` throws **`LlmCallError`** (provider `io.net`, kind `list_models` | `chat_completion`, optional `modelId`, `httpStatus`); use **`formatLlmCallErrorReport`** for UI/logs. Future non–io.net backends should reuse `LlmCallError` with a new `LlmProviderId`.
+
+### Env (dev)
+
+- Root **`.env` / `.env.local`**: DB, OAuth, optional Meilisearch, catalog API, LLM keys — see Section 8. **`[Auth] Missing session cookie`** in dev without login is expected for demos. **STORY-198:** `STAGE1_QUERY_EXPANSION=1` (server) + **`VITE_STAGE1_QUERY_EXPANSION=1`** (client build) enable optional LLM sub-queries before Meilisearch Stage-1; requires LLM key (`forgeApiKey` / io.net).
+
+### Test health
+
+- Run **`pnpm test`** (`vitest run`) at repo root; release-style gate: **`pnpm run smoke`** (`vitest run && vite build`). Client-only bundle check: **`pnpm exec vite build`**. Integration tests may use `vitest.integration.config.ts` / `pnpm test:integration` when present. Re-count tests after large changes and note in tracker if you maintain “last guardian review” lines.
+
+### Server / DB (unchanged at a glance)
+
+- **Server:** Express + tRPC 11 — `server/routers/catalog.ts`, agents, etc.
+- **DB:** MySQL via Drizzle (`drizzle/schema.ts`, `drizzle/schema-catalog.ts` when present).
+
+### Packages (when in use)
+
+- **Landing:** Astro + Retail Promo Designer patterns (may mirror root; root app is primary for active retail-promo work in this repo).
+- **Control-panel:** Next.js, admin + company auth, tRPC, Drizzle/Postgres, etc.

@@ -30,6 +30,9 @@ build/
 ehthumbs.db
 Thumbs.db
 
+# Debug / temp (e.g. io.net raw responses for parser testing)
+.tmp/
+
 # Logs
 logs
 *.log
@@ -108,3 +111,12 @@ temp/
 
 # Webdev artifacts (checkpoint zips, migrations, etc.)
 .webdev/
+
+# SST / Pulumi local state (large; do not publish)
+.sst/
+
+# Local full-tree backups (not source of truth)
+backup_*/
+
+# Local scratch / duplicate trees (may contain .dev.vars or secrets)
+.ignore/

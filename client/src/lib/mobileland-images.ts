@@ -30,6 +30,27 @@ export function isMobilelandImageEnabled(): boolean {
 }
 
 /**
+ * Normalize Excel / state `code` for lookup in the server SKU→URL map.
+ * Handles numeric cells, float strings, unicode spaces — avoids silent misses when
+ * `product.code` is a number (`.trim` would throw) or "1052510.0".
+ */
+export function normalizeProductCodeForMobilelandLookup(raw: unknown): string {
+  if (raw == null) return '';
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    return String(Math.trunc(raw));
+  }
+  let s = String(raw)
+    .replace(/[\u00A0\u1680\u2000-\u200A\u202F\u205F\u3000\uFEFF]/g, '')
+    .trim();
+  if (!s) return '';
+  if (/^\d+\.0+$/.test(s)) {
+    const n = Number(s);
+    if (Number.isFinite(n)) return String(Math.trunc(n));
+  }
+  return s;
+}
+
+/**
  * A cache with fewer entries than this is considered stale/incomplete
  * (e.g. cached before the fields fix — only first page of ~186 items).
  * The full Mobileland catalog has 34k+ products; anything below 1000 entries
@@ -120,7 +141,8 @@ export async function fetchMobilelandImageMap(): Promise<Record<string, string>>
  * Get the image URL for a single product code (SKU).
  */
 export async function getProductImageUrl(code: string): Promise<string | undefined> {
-  if (!code?.trim()) return undefined;
+  const key = normalizeProductCodeForMobilelandLookup(code);
+  if (!key) return undefined;
   const map = await fetchMobilelandImageMap();
-  return map[code.trim()];
+  return map[key];
 }

@@ -93,6 +93,8 @@ export interface FooterConfig {
   height?: number;
   padding?: number | string;
   alignment?: 'left' | 'center' | 'right';
+  /** STORY-109: Company / brand name shown in the footer band. */
+  companyName?: string;
   
   // Specific elements
   cta?: {
@@ -262,6 +264,14 @@ export const STYLE_PRESETS: Record<DesignStyle, {
     fontFamily: 'Arial, sans-serif',
     description: 'Custom colors',
   },
+};
+
+/** STORY-127: Default footer for new creatives — on by default, slim band (mandatory footer). */
+export const DEFAULT_FOOTER_FOR_NEW_CREATIVE: FooterConfig = {
+  enabled: true,
+  options: ['contact'],
+  backgroundColor: '#1a1a1a',
+  textColor: '#ffffff',
 };
 
 // Default ad configuration

@@ -103,7 +103,7 @@ function routeRequest(userMessage: string): string[] {
     'copy-agent': ['headline', 'text', 'cta', 'badge', 'copy', 'message', 'write', 'say'],
     'product-agent': ['product', 'image', 'feature', 'benefit', 'analyze', 'show', 'display'],
     'brand-agent': ['brand', 'guideline', 'consistency', 'compliance', 'style', 'identity'],
-    'optimization-agent': ['optim', 'convert', 'performance', 'improve', 'lift', 'better', 'enhance'],
+    'optimization-agent': ['optim', 'conver', 'performance', 'improve', 'lift', 'better', 'enhance'],
   };
 
   const agentsToUse = new Set<string>();

@@ -1,20 +1,24 @@
 /**
- * AdCanvasEditor — STORY-41 / STORY-37
- * Full-canvas WYSIWYG ad editor.  Each ad element is a directly-editable block;
- * no separate side panel required.  Drag handles allow layer reordering.
+ * AdCanvasEditor — STORY-99 Canva-style visual redesign
+ * Full-canvas WYSIWYG ad editor with neutral workspace background,
+ * centered artboard card, and hover-revealed block controls.
  *
- * STORY-37: adaptive text contrast so inputs are always visible regardless of
- * which background colour the user has selected.
+ * Lineage: STORY-41 (foundation), STORY-37 (adaptive contrast),
+ * STORY-99 (Canva-style visual redesign).
  */
 import React, { useRef, useState, useCallback } from 'react';
-import { GripVertical, X, Plus, AlignLeft, AlignCenter, AlignRight, Sparkles, Loader2 } from 'lucide-react';
-import AgentChatPanel from './AgentChatPanel';
+import { GripVertical, X, Plus, AlignLeft, AlignCenter, AlignRight, Sparkles, Loader2, Layers } from 'lucide-react';
+import AgentChatPanel, { type AgentChatStarterPrompt } from './AgentChatPanel';
 import MultiAgentSuggestionPanel from './MultiAgentSuggestionPanel';
 import type { MultiAgentSuggestion, MultiAgentSuggestionResult } from '../lib/multi-agent-suggestions';
 import ExportPanel from './ExportPanel';
 import { HeaderFooterConfigPanel } from './HeaderFooterConfigPanel';
 import { PanelTabBar, type PanelTab } from './PanelTabBar';
 import ProductSelectionPanel from './ProductSelectionPanel';
+import type { ProductSelectionCanvasScope } from '@/lib/product-selection-panel-filters';
+import WorkspaceSettingsPanel from './WorkspaceSettingsPanel';
+import ChatWorkspaceTools from './ChatWorkspaceTools';
+import type { WorkspaceSettingsSectionId } from '@/lib/workspace-settings-sections';
 import type { HeaderConfig, FooterConfig } from '../lib/ad-config-schema';
 import type { ConversationMessage, ChatModelMode } from '../lib/agent-chat-engine';
 import type { AgentAction } from '../lib/agent-actions';
@@ -22,10 +26,15 @@ import type { AdElementKey, ProductBlockOptions } from '../lib/ad-constants';
 import type { ProductItem } from '../lib/ad-constants';
 import type { SavedProductPhotoEntry } from '../lib/saved-product-photos';
 import PhotoPickerPopover from './PhotoPickerPopover';
-import type { StyleOptions } from '../lib/ad-layouts/types';
+import ProductSlotModal from './ProductSlotModal';
+import EmojiPickerPopover from './EmojiPickerPopover';
+import type { FormatPreset, StyleOptions } from '../lib/ad-layouts/types';
+import { computeEffectiveImageHeight } from '../lib/ad-layouts/shared';
 import {
+  FORMAT_PRESETS,
   MIN_TITLE_FONT_SIZE,
   MAX_TITLE_FONT_SIZE,
+  TITLE_FONT_SIZE_PRESETS,
   MAX_TITLE_LENGTH,
   MAX_CTA_LENGTH,
   MAX_BADGE_LENGTH,
@@ -42,6 +51,7 @@ import {
   HEADER_BRAND_LOGO_HEIGHT_PX,
   HEADER_BRAND_LOGO_MAX_WIDTH_PX,
 } from '../lib/ad-constants';
+import { getPages } from '../lib/canvas-pages';
 
 export type LogoAlignment = 'left' | 'center' | 'right';
 export type LogoCompanion = 'none' | 'headline' | 'badge' | 'emoji';
@@ -79,18 +89,6 @@ function getAdaptiveColors(bgHex: string): AdaptiveColors {
 /* ── ─────────────────────────────────────────────────────────────────────── */
 
 const CTA_SUGGESTIONS = ['Shop now', 'See offers', 'Buy now', 'Learn more', 'Get offer'] as const;
-
-const EMOJI_PRESETS: { value: string; label: string }[] = [
-  { value: '', label: 'None' },
-  { value: '🔥', label: '🔥 Hot' },
-  { value: '📢', label: '📢 Announce' },
-  { value: '✨', label: '✨ Sparkle' },
-  { value: '🎉', label: '🎉 Celebrate' },
-  { value: '🏷️', label: '🏷️ Tag' },
-  { value: '⭐', label: '⭐ Star' },
-  { value: '💥', label: '💥 Boom' },
-  { value: '🛒', label: '🛒 Shop' },
-];
 
 function getGridColumns(count: number): number {
   if (count <= 1) return 1;
@@ -140,6 +138,12 @@ export interface AdCanvasEditorProps {
   onAssignProductPhoto?: (canvasIndex: number, dataUri: string) => void;
   /** STORY-55: called when user uploads a new photo from the canvas product cell. */
   onUploadProductPhoto?: (canvasIndex: number, file: File) => void;
+  /** STORY-209: Replace the catalog row backing this canvas slot (indices into full `selectionCatalogProducts`). */
+  onSwapCanvasProduct?: (canvasIndex: number, sourceCatalogIndex: number) => void;
+  /** STORY-209: For each canvas `products[i]`, the catalog row index in `selectionCatalogProducts` (parallel array). */
+  templateProductCatalogIndices?: number[];
+  /** STORY-210: Resolve thumbnail URL for a full-catalog row (e.g. Mobileland + imageDataUri). */
+  getCatalogThumbnail?: (catalogIndex: number) => string | undefined;
   /** STORY-56: per-product-block options (columns, field visibility, image height). */
   productBlockOptions?: ProductBlockOptions;
   onProductBlockOptionsChange?: (v: ProductBlockOptions) => void;
@@ -159,6 +163,9 @@ export interface AdCanvasEditorProps {
   /** STORY-62 Phase 2: proactive suggestions */
   suggestionsEnabled?: boolean;
   onSuggestionsToggle?: (enabled: boolean) => void;
+  /** STORY-169: mute proactive API calls only for this browser session */
+  proactiveSessionMuted?: boolean;
+  onProactiveSessionMuteToggle?: () => void;
   onApplySuggestion?: (timestamp: number, actions: AgentAction[]) => void;
   onDismissSuggestion?: (timestamp: number) => void;
   /** Multi-agent suggestions */
@@ -174,23 +181,42 @@ export interface AdCanvasEditorProps {
   onFooterChange?: (footer: FooterConfig) => void;
   showHeaderFooterPanel?: boolean;
   onToggleHeaderFooterPanel?: (show: boolean) => void;
+  /** STORY-127: Format for multi-page distribution (9 Story/Square, 4 Landscape per page). */
+  format?: FormatPreset;
+  /** STORY-127: When multi-page, one full-document HTML per page for export (PNG/HTML per page). */
+  htmlPerPage?: string[];
+  /** STORY-128: Controlled current page index (when provided with onCurrentPageChange). */
+  currentPageIndex?: number;
+  /** STORY-128: Called when user changes page in canvas; enables controlled mode with AgentChat. */
+  onCurrentPageChange?: (index: number) => void;
+  /** STORY-159: Full retail catalog for the Products tab list (defaults to canvas `products` if omitted). */
+  selectionCatalogProducts?: ProductItem[];
+  /** STORY-178: Settings → Import — replace catalog after API sync */
+  onCatalogSync?: (products: ProductItem[]) => void;
+  /** STORY-181: Shared catalog search string (Add Products + Products tab). */
+  catalogSearchQuery?: string;
+  onCatalogSearchQueryChange?: (q: string) => void;
+  /** STORY-194: Last agent `catalog_filter` query — copy into Products search when tab opens. */
+  lastAgentCatalogFilterQuery?: string;
+  /** STORY-183: Collapsible search/brief/API tools above chat (retail promo). */
+  showChatWorkspaceTools?: boolean;
+  /** STORY-189: Intent starter chips (search / design / full ad) for chat empty state. */
+  chatStarterPrompts?: AgentChatStarterPrompt[];
 }
 
-/** Thin wrapper that draws the orange selection ring + drag handle + label. */
 function CanvasBlock({
   label,
   elementKey,
   children,
   onDragStart,
   onDrop,
-  labelColor,
 }: {
   label: string;
   elementKey: AdElementKey;
   children: React.ReactNode;
   onDragStart: () => void;
   onDrop: () => void;
-  labelColor: string;
+  labelColor?: string;
 }) {
   return (
     <div
@@ -199,23 +225,16 @@ function CanvasBlock({
       onDragOver={(e) => e.preventDefault()}
       onDrop={onDrop}
       data-testid={`canvas-block-${elementKey}`}
-      className="group relative rounded-xl border-2 border-transparent hover:border-orange-500/25 transition-all duration-150"
+      className="group/block relative rounded-lg transition-all duration-200 hover:ring-1 hover:ring-orange-400/30"
     >
-      {/* Top bar: drag handle + label */}
-      <div className="flex items-center gap-1.5 px-2 pt-1.5 pb-0.5 select-none">
-        <GripVertical
-          className="h-3.5 w-3.5 shrink-0 cursor-grab"
-          style={{ color: labelColor }}
-          aria-hidden
-        />
-        <span
-          className="text-[10px] font-semibold uppercase tracking-widest"
-          style={{ color: labelColor }}
-        >
+      {/* Hover-revealed label pill + drag handle */}
+      <div className="pointer-events-none absolute -top-2.5 left-3 z-10 flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover/block:opacity-100">
+        <span className="pointer-events-auto flex cursor-grab items-center gap-1 rounded-md bg-white/95 px-2 py-0.5 text-[10px] font-medium text-gray-500 shadow-sm ring-1 ring-black/5 backdrop-blur-sm">
+          <GripVertical className="h-3 w-3 text-gray-400" aria-hidden />
           {label}
         </span>
       </div>
-      <div className="px-3 pb-3">{children}</div>
+      <div className="px-2 py-2">{children}</div>
     </div>
   );
 }
@@ -251,6 +270,9 @@ export default function AdCanvasEditor({
   savedProductPhotos = [],
   onAssignProductPhoto,
   onUploadProductPhoto,
+  onSwapCanvasProduct,
+  templateProductCatalogIndices,
+  getCatalogThumbnail,
   productBlockOptions: productBlockOptionsProp,
   onProductBlockOptionsChange,
   onAiEditPrompt,
@@ -266,6 +288,8 @@ export default function AdCanvasEditor({
   canChatUndo = false,
   suggestionsEnabled = true,
   onSuggestionsToggle,
+  proactiveSessionMuted = false,
+  onProactiveSessionMuteToggle,
   onApplySuggestion,
   onDismissSuggestion,
   multiAgentSuggestions = null,
@@ -279,14 +303,79 @@ export default function AdCanvasEditor({
   onFooterChange,
   showHeaderFooterPanel = false,
   onToggleHeaderFooterPanel,
+  format: formatProp,
+  htmlPerPage,
+  currentPageIndex: currentPageIndexProp,
+  onCurrentPageChange,
+  selectionCatalogProducts,
+  onCatalogSync,
+  catalogSearchQuery,
+  onCatalogSearchQueryChange,
+  lastAgentCatalogFilterQuery,
+  showChatWorkspaceTools = false,
+  chatStarterPrompts,
 }: AdCanvasEditorProps) {
+  const format = formatProp ?? FORMAT_PRESETS[0];
+  const productBlockOptions = productBlockOptionsProp ?? DEFAULT_PRODUCT_BLOCK_OPTIONS;
   const dragIdxRef = useRef<number | null>(null);
   const [anyFocused, setAnyFocused] = useState(false);
-  const [openPickerIdx, setOpenPickerIdx] = useState<number | null>(null);
-  const [pickerRect, setPickerRect] = useState<DOMRect | null>(null);
+  /** STORY-210: Single modal for “pick product” / “change photo” on canvas tile. */
+  const [productSlotModalIdx, setProductSlotModalIdx] = useState<number | null>(null);
+  /** STORY-127/128: Current page index — controlled when currentPageIndexProp + onCurrentPageChange provided. */
+  const pages = React.useMemo(
+    () => getPages(products.length, format, productBlockOptions.columns),
+    [products.length, format, productBlockOptions.columns],
+  );
+  const [internalPageIndex, setInternalPageIndex] = useState(0);
+  const isPageControlled = currentPageIndexProp !== undefined && onCurrentPageChange !== undefined;
+  const currentPageIndex = isPageControlled ? currentPageIndexProp! : internalPageIndex;
+  const setCurrentPageIndex = useCallback(
+    (update: number | ((prev: number) => number)) => {
+      const next = typeof update === 'function' ? update(isPageControlled ? currentPageIndexProp! : internalPageIndex) : update;
+      const clamped = Math.max(0, Math.min(pages.length - 1, next));
+      if (isPageControlled) onCurrentPageChange?.(clamped);
+      else setInternalPageIndex(clamped);
+    },
+    [isPageControlled, currentPageIndexProp, internalPageIndex, pages.length, onCurrentPageChange],
+  );
+  React.useEffect(() => {
+    if (currentPageIndex >= pages.length) {
+      const clamped = Math.max(0, pages.length - 1);
+      if (isPageControlled) onCurrentPageChange?.(clamped);
+      else setInternalPageIndex(clamped);
+    }
+  }, [pages.length, currentPageIndex, isPageControlled, onCurrentPageChange]);
   const [aiPromptText, setAiPromptText] = useState('');
   const [activePanel, setActivePanel] = useState<PanelTab>('chat');
+  /** STORY-171: which Settings accordion section is open (deep link from Products). STORY-179: may be null (all collapsed). */
+  const [workspaceSettingsSection, setWorkspaceSettingsSection] =
+    useState<WorkspaceSettingsSectionId | null>('connections');
   const [selectedProductIds, setSelectedProductIds] = useState<string[]>([]);
+  /** STORY-164: Persist while bottom tab !== products (panel unmounts). STORY-181: optional parent control. */
+  const [internalProductPanelSearchQuery, setInternalProductPanelSearchQuery] = useState('');
+  const catalogSearchControlled =
+    catalogSearchQuery !== undefined && onCatalogSearchQueryChange !== undefined;
+  const productPanelSearchQuery = catalogSearchControlled
+    ? (catalogSearchQuery ?? '')
+    : internalProductPanelSearchQuery;
+  const setProductPanelSearchQuery = catalogSearchControlled
+    ? onCatalogSearchQueryChange
+    : setInternalProductPanelSearchQuery;
+  /** STORY-194: When user switches to Products tab, mirror the last agent catalog_filter text into search. */
+  const prevBottomPanelRef = useRef<PanelTab>(activePanel);
+  React.useEffect(() => {
+    const prev = prevBottomPanelRef.current;
+    prevBottomPanelRef.current = activePanel;
+    if (activePanel !== 'products' || prev === 'products') return;
+    const q = lastAgentCatalogFilterQuery?.trim();
+    if (!q) return;
+    setProductPanelSearchQuery(q);
+  }, [activePanel, lastAgentCatalogFilterQuery, setProductPanelSearchQuery]);
+  /** STORY-206: default `not_on_canvas` preserves STORY-159 “remaining SKUs” workflow. */
+  const [productPanelCanvasScope, setProductPanelCanvasScope] =
+    useState<ProductSelectionCanvasScope>('not_on_canvas');
+  /** STORY-208: default on — Products tab lists only search hits until user unchecks. */
+  const [productPanelListOnlySearchMatches, setProductPanelListOnlySearchMatches] = useState(true);
   const [isCreatingNewAd, setIsCreatingNewAd] = useState(false);
   const [creationError, setCreationError] = useState<string | null>(null);
   const onFocus = useCallback(() => setAnyFocused(true), []);
@@ -320,6 +409,12 @@ export default function AdCanvasEditor({
     []
   );
 
+  /** STORY-171: Open Settings tab on a specific accordion section (e.g. from Products). */
+  const navigateToWorkspaceSettings = useCallback((section: WorkspaceSettingsSectionId) => {
+    setWorkspaceSettingsSection(section);
+    setActivePanel('settings');
+  }, []);
+
   /* Logo state — use prop-controlled if provided, else internal fallback */
   const logoHeight = logoHeightProp ?? DEFAULT_LOGO_HEIGHT;
   const logoAlignment = logoAlignmentProp ?? 'center';
@@ -329,7 +424,6 @@ export default function AdCanvasEditor({
   const productImageHeight = productImageHeightProp ?? DEFAULT_PRODUCT_IMAGE_HEIGHT;
 
   /* Product block options — prop-controlled or default (STORY-56) */
-  const productBlockOptions = productBlockOptionsProp ?? DEFAULT_PRODUCT_BLOCK_OPTIONS;
   const setProductBlockField = useCallback(
     (key: keyof ProductBlockOptions, value: ProductBlockOptions[keyof ProductBlockOptions]) => {
       onProductBlockOptionsChange?.({ ...productBlockOptions, [key]: value });
@@ -409,49 +503,31 @@ export default function AdCanvasEditor({
     badge: 'Badge',
     cta: 'CTA Buttons',
     disclaimer: 'Disclaimer',
+    footer: 'Footer',
   };
 
   /* ── Element renderers ─────────────────────────────────────────── */
 
   const renderHeadline = () => (
-    <div className="space-y-2">
-      {/* Headline input row */}
-      <div
-        className="flex items-center gap-2 rounded-lg px-2 py-1 transition-all"
-        style={{ borderBottom: `1.5px dashed ${colors.borderColor}` }}
-        data-testid="headline-input-wrapper"
-      >
-        {/* Emoji inline picker */}
-        <div className="group/emoji relative shrink-0">
-          <button
-            type="button"
-            className="rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 text-base leading-none hover:bg-white/10 focus:outline-none focus:ring-1 focus:ring-orange-500/50"
-            title="Pick emoji"
-            data-testid="canvas-emoji-button"
-          >
-            {emojiOrIcon || '○'}
-          </button>
-          {/* Hover dropdown */}
-          <div className="pointer-events-none absolute top-full left-0 z-10 mt-1 hidden w-max max-w-xs flex-wrap gap-1 rounded-xl border border-white/10 bg-gray-900/95 p-2 shadow-xl backdrop-blur group-hover/emoji:pointer-events-auto group-hover/emoji:flex"
-            data-testid="emoji-picker"
-          >
-            {EMOJI_PRESETS.map(({ value, label }) => (
-              <button
-                key={value || 'none'}
-                type="button"
-                onMouseDown={(e) => {
-                  e.preventDefault();
-                  onEmojiOrIconChange(value);
-                }}
-                className={`rounded px-2 py-0.5 text-sm hover:bg-white/10 ${emojiOrIcon === value ? 'bg-white/10' : ''}`}
-                data-testid={`emoji-option-${value || 'none'}`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        </div>
-        {/* Headline text — adaptive color so it's always readable */}
+    <div className="space-y-1.5">
+      <div className="flex items-center gap-2" data-testid="headline-input-wrapper">
+        {/* Emoji picker — click to open, search, grid (industry-standard) */}
+        <EmojiPickerPopover
+          value={emojiOrIcon}
+          onChange={onEmojiOrIconChange}
+          data-testid="emoji-picker"
+          trigger={
+            <button
+              type="button"
+              className="flex h-9 w-9 items-center justify-center rounded-lg text-base transition hover:bg-black/5 focus:outline-none focus:ring-1 focus:ring-orange-400/40"
+              style={{ background: colors.borderColor }}
+              title="Pick emoji"
+              data-testid="canvas-emoji-button"
+            >
+              {emojiOrIcon || '○'}
+            </button>
+          }
+        />
         <input
           type="text"
           value={headline}
@@ -466,55 +542,54 @@ export default function AdCanvasEditor({
             color: colors.text,
             fontFamily: style.fontFamily,
           }}
-          className="flex-1 min-w-0 bg-transparent border-none outline-none leading-tight"
+          className="min-w-0 flex-1 bg-transparent border-none outline-none leading-tight placeholder:opacity-30"
           data-testid="ad-option-headline"
         />
-        <span
-          className="shrink-0 text-[10px] tabular-nums"
-          style={{ color: colors.labelText }}
-          data-testid="headline-char-count"
-        >
+        <span className="shrink-0 text-[10px] tabular-nums text-gray-400" data-testid="headline-char-count">
           {headline.length}/{MAX_TITLE_LENGTH}
         </span>
       </div>
-
-      {/* Font size control — always visible */}
-      <div className="flex items-center gap-2" data-testid="font-size-control">
-        <span className="shrink-0 text-[10px] text-gray-600">Size</span>
-        <input
-          type="range"
-          min={MIN_TITLE_FONT_SIZE}
-          max={MAX_TITLE_FONT_SIZE}
-          step={1}
-          value={titleFontSize}
-          onChange={(e) => onTitleFontSizeChange(Number(e.target.value))}
-          className="flex-1 accent-orange-500 cursor-pointer"
-          aria-label="Headline font size"
-          data-testid="font-size-slider"
-        />
+      {/* Font size — preset chips + direct number input (STORY-109) */}
+      <div className="flex flex-wrap items-center gap-1.5 opacity-60 transition-opacity hover:opacity-100" data-testid="font-size-control">
+        <span className="shrink-0 text-[10px] font-medium" style={{ color: colors.labelText }}>Aa</span>
+        {TITLE_FONT_SIZE_PRESETS.map((preset) => {
+          const isActive = titleFontSize === preset;
+          return (
+            <button
+              key={preset}
+              type="button"
+              onClick={() => onTitleFontSizeChange(preset)}
+              aria-label={`Font size ${preset}`}
+              data-testid={`font-size-chip-${preset}`}
+              className={`rounded border px-1.5 py-0.5 text-[10px] leading-none transition-colors ${
+                isActive
+                  ? 'border-orange-500 bg-orange-50 font-bold text-orange-600'
+                  : 'border-gray-200 bg-white text-gray-500 hover:border-orange-300'
+              }`}
+            >
+              {preset}
+            </button>
+          );
+        })}
         <input
           type="number"
           min={MIN_TITLE_FONT_SIZE}
           max={MAX_TITLE_FONT_SIZE}
           value={titleFontSize}
           onChange={(e) => {
-            const v = Math.min(
-              MAX_TITLE_FONT_SIZE,
-              Math.max(MIN_TITLE_FONT_SIZE, Number(e.target.value) || MIN_TITLE_FONT_SIZE),
-            );
+            const v = Math.min(MAX_TITLE_FONT_SIZE, Math.max(MIN_TITLE_FONT_SIZE, Number(e.target.value) || MIN_TITLE_FONT_SIZE));
             onTitleFontSizeChange(v);
           }}
-          className="w-12 rounded-md border border-white/10 bg-white/5 px-1.5 py-1 text-center text-xs text-gray-200 focus:border-orange-500/50 focus:outline-none"
+          className="w-12 rounded border border-gray-200 bg-white px-1 py-0.5 text-center text-[10px] text-gray-600 focus:border-orange-400 focus:outline-none"
           aria-label="Headline font size value"
           data-testid="font-size-input"
         />
-        <span className="text-[10px] text-gray-600">px</span>
       </div>
     </div>
   );
 
   const renderBadge = () => (
-    <div className="flex justify-center py-1">
+    <div className="flex justify-center">
       <input
         type="text"
         value={badgeText}
@@ -523,20 +598,8 @@ export default function AdCanvasEditor({
         onBlur={onBlur}
         placeholder="Badge text (e.g. 30% OFF)"
         maxLength={MAX_BADGE_LENGTH}
-        style={{
-          background: style.accentColor,
-          color: '#fff',
-          fontWeight: 800,
-          fontSize: '16px',
-          borderRadius: '999px',
-          padding: '8px 20px',
-          border: 'none',
-          outline: 'none',
-          textAlign: 'center',
-          minWidth: '80px',
-          width: 'auto',
-        }}
-        className="focus:ring-2 focus:ring-white/30 focus:ring-offset-0"
+        className="rounded-full px-5 py-2 text-center text-sm font-extrabold text-white shadow-sm focus:outline-none focus:ring-2 focus:ring-white/40 placeholder:text-white/50"
+        style={{ background: style.accentColor, minWidth: '80px' }}
         data-testid="ad-option-badge"
       />
     </div>
@@ -551,7 +614,7 @@ export default function AdCanvasEditor({
             key={s}
             type="button"
             onClick={() => appendCtaSuggestion(s)}
-            className="rounded-md border border-white/10 bg-white/5 px-2 py-0.5 text-xs text-gray-300 transition hover:bg-white/10 focus:outline-none"
+            className="rounded-md bg-gray-100 px-2 py-0.5 text-[11px] text-gray-500 transition hover:bg-orange-50 hover:text-orange-600 focus:outline-none"
             data-testid={`cta-suggestion-${s.replace(/\s+/g, '-').toLowerCase()}`}
           >
             {s}
@@ -559,36 +622,24 @@ export default function AdCanvasEditor({
         ))}
       </div>
 
-      {/* Button-shaped editable inputs */}
-      <div className="flex flex-wrap gap-2 items-center" data-testid="cta-buttons-list">
+      <div className="flex flex-wrap items-center gap-2" data-testid="cta-buttons-list">
         {ctaButtons.map((btn, idx) => (
-          <div key={idx} className="relative flex items-center">
+          <div key={idx} className="group/cta relative flex items-center">
             <input
               type="text"
               value={btn}
               onChange={(e) => updateCta(idx, e.target.value)}
               placeholder="Button text"
               maxLength={MAX_CTA_LENGTH}
-              style={{
-                background: style.accentColor,
-                color: '#fff',
-                fontWeight: 800,
-                fontSize: '15px',
-                borderRadius: '10px',
-                padding: '10px 18px',
-                border: 'none',
-                outline: 'none',
-                minWidth: '80px',
-                textAlign: 'center',
-              }}
-              className="focus:ring-2 focus:ring-white/30"
+              className="rounded-lg px-4 py-2.5 text-center text-sm font-extrabold text-white shadow-sm focus:outline-none focus:ring-2 focus:ring-white/40 placeholder:text-white/50"
+              style={{ background: style.accentColor, minWidth: '80px' }}
               data-testid={idx === 0 ? 'ad-option-cta' : `ad-option-cta-${idx}`}
             />
             {ctaButtons.length > 1 && (
               <button
                 type="button"
                 onClick={() => removeCta(idx)}
-                className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-red-500/30 text-red-400 hover:bg-red-500/50 focus:outline-none"
+                className="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-white opacity-0 shadow-sm transition group-hover/cta:opacity-100 focus:outline-none"
                 aria-label={`Remove CTA button ${idx + 1}`}
                 data-testid={`remove-cta-${idx}`}
               >
@@ -603,52 +654,129 @@ export default function AdCanvasEditor({
         <button
           type="button"
           onClick={addCta}
-          className="flex items-center gap-1 text-xs text-orange-400/80 hover:text-orange-400 focus:outline-none"
+          className="flex items-center gap-1 text-xs font-medium text-orange-500 transition hover:text-orange-600 focus:outline-none"
           data-testid="add-cta-button"
         >
           <Plus className="h-3.5 w-3.5" />
-          Add CTA button
+          Add button
         </button>
       )}
     </div>
   );
 
   const renderDisclaimer = () => (
-    <div
-      style={{ borderBottom: `1.5px dashed ${colors.borderColor}` }}
-      className="py-1"
-    >
-      <input
-        type="text"
-        value={disclaimerText}
-        onChange={(e) => onDisclaimerTextChange(e.target.value.slice(0, MAX_DISCLAIMER_LENGTH))}
-        onFocus={onFocus}
-        onBlur={onBlur}
-        placeholder="Disclaimer / footer text (optional)"
-        maxLength={MAX_DISCLAIMER_LENGTH}
-        style={{ color: colors.textMuted, fontSize: '12px', textAlign: 'center', fontFamily: style.fontFamily }}
-        className="w-full bg-transparent border-none outline-none"
-        data-testid="ad-option-disclaimer"
-      />
-    </div>
+    <input
+      type="text"
+      value={disclaimerText}
+      onChange={(e) => onDisclaimerTextChange(e.target.value.slice(0, MAX_DISCLAIMER_LENGTH))}
+      onFocus={onFocus}
+      onBlur={onBlur}
+      placeholder="Disclaimer / footer text (optional)"
+      maxLength={MAX_DISCLAIMER_LENGTH}
+      style={{ color: colors.textMuted, fontFamily: style.fontFamily }}
+      className="w-full bg-transparent border-none text-center text-xs outline-none placeholder:opacity-30"
+      data-testid="ad-option-disclaimer"
+    />
   );
+
+  /* STORY-109/127: FooterBar — follows canvas colors (same background as artboard, readable text). */
+  const renderFooter = (): React.ReactNode => {
+    if (!footer?.enabled) return null;
+    const bg = style.backgroundColor;
+    const fg = colors.text;
+    const hasCompany = !!footer.companyName?.trim();
+    const hasPhone = !!footer.contact?.phone?.trim();
+    const hasWebsite = !!footer.contact?.website?.trim();
+    const hasAddress = !!footer.contact?.address?.trim();
+    const hasAnyField = hasCompany || hasPhone || hasWebsite || hasAddress;
+    return (
+      <div
+        data-testid="canvas-footer-bar"
+        style={{ background: bg, color: fg, padding: '8px 12px', borderRadius: '0 0 12px 12px', margin: '-20px -20px 0', fontSize: 11 }}
+        className="flex items-center justify-between gap-3 text-[11px]"
+      >
+        <div className="flex flex-col gap-0.5">
+          {hasCompany && (
+            <span className="font-bold" data-testid="footer-display-company">
+              {footer.companyName}
+            </span>
+          )}
+          {hasAddress && (
+            <span className="opacity-80" data-testid="footer-display-address">
+              {footer.contact!.address}
+            </span>
+          )}
+          {!hasAnyField && <span className="opacity-60">Company & contact</span>}
+        </div>
+        <div className="flex flex-col items-end gap-0.5 text-right">
+          {hasPhone && (
+            <span data-testid="footer-display-phone">{footer.contact!.phone}</span>
+          )}
+          {hasWebsite && (
+            <span className="opacity-80" data-testid="footer-display-website">
+              {footer.contact!.website}
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  };
 
   const renderProducts = () => {
     if (products.length === 0) {
       return (
-        <p className="py-4 text-center text-xs text-gray-600">
-          No products selected — use the left panel to add products.
+        <p className="py-6 text-center text-xs text-gray-400">
+          No products selected yet.
         </p>
       );
     }
     const { showFields } = productBlockOptions;
-    const maxShow = productBlockOptions.maxProducts > 0 ? productBlockOptions.maxProducts : 0;
-    const shown = maxShow > 0 ? products.slice(0, maxShow) : products;
-    const rest = products.length - shown.length;
+    const isMultiPage = pages.length > 1;
+    const shownEntries: { product: ProductItem; globalIndex: number }[] = isMultiPage
+      ? (pages[currentPageIndex]?.productIndices ?? []).map((globalIndex) => ({
+          product: products[globalIndex]!,
+          globalIndex,
+        }))
+      : (() => {
+          const maxShow = productBlockOptions.maxProducts > 0 ? productBlockOptions.maxProducts : 0;
+          const slice = maxShow > 0 ? products.slice(0, maxShow) : products;
+          return slice.map((product, i) => ({ product, globalIndex: i }));
+        })();
+    const rest = products.length - shownEntries.length;
     const cols =
       productBlockOptions.columns > 0
         ? productBlockOptions.columns
-        : getGridColumns(shown.length);
+        : getGridColumns(shownEntries.length);
+    const rows = Math.ceil(shownEntries.length / Math.max(1, cols));
+    const effectiveProductImageHeight = computeEffectiveImageHeight(format, rows, productImageHeight);
+
+    const swapCatalog = selectionCatalogProducts ?? products;
+    const canSwap =
+      typeof onSwapCanvasProduct === 'function' &&
+      Array.isArray(templateProductCatalogIndices) &&
+      templateProductCatalogIndices.length === products.length &&
+      swapCatalog.length > 0;
+    const imageInteractive = Boolean(onAssignProductPhoto || canSwap);
+
+    const handleImageAreaClick = (e: React.MouseEvent, globalIndex: number) => {
+      const rect = e.currentTarget.getBoundingClientRect();
+      if (canSwap && onAssignProductPhoto) {
+        setOpenPickerIdx(null);
+        setOpenSwapIdx(null);
+        setImageSlotMenu({ idx: globalIndex, rect });
+        setPickerRect(rect);
+        return;
+      }
+      if (canSwap && !onAssignProductPhoto) {
+        setOpenSwapIdx((prev) => (prev === globalIndex ? null : globalIndex));
+        setPickerRect(rect);
+        return;
+      }
+      if (onAssignProductPhoto) {
+        setOpenPickerIdx((prev) => (prev === globalIndex ? null : globalIndex));
+        setPickerRect(rect);
+      }
+    };
 
     const FIELD_TOGGLES: { key: keyof typeof showFields; label: string }[] = [
       { key: 'code', label: 'Code' },
@@ -658,66 +786,92 @@ export default function AdCanvasEditor({
       { key: 'brandLogo', label: 'Logo' },
     ];
 
+    const ToolbarBtn = ({ active, children, ...props }: React.ButtonHTMLAttributes<HTMLButtonElement> & { active: boolean }) => (
+      <button
+        type="button"
+        {...props}
+        className={`rounded-md px-1.5 py-0.5 text-[10px] font-medium transition-colors ${
+          active
+            ? 'bg-orange-500 text-white shadow-sm'
+            : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+        }`}
+      >
+        {children}
+      </button>
+    );
+
     return (
-      <div>
-        {/* Max products to show (0 = all) — scalable 3+ products */}
-        <div className="mb-2 flex items-center gap-1.5 flex-wrap">
-          <span className="shrink-0 text-[10px]" style={{ color: colors.labelText }}>Show</span>
-          {([0, 3, 5, 10, 20] as const).map((n) => (
+      <div className="space-y-2">
+        {isMultiPage && (
+          <div className="flex items-center justify-center gap-2 rounded-lg bg-gray-100 px-2.5 py-1.5 ring-1 ring-gray-200" data-testid="canvas-page-switcher">
             <button
-              key={n}
               type="button"
-              data-testid={n === 0 ? 'show-all-btn' : `show-${n}-btn`}
-              onClick={() => setProductBlockField('maxProducts', n)}
-              className="rounded px-1.5 py-0.5 text-[10px] font-semibold transition-colors"
-              style={{
-                background: productBlockOptions.maxProducts === n ? style.accentColor : 'rgba(0,0,0,0.07)',
-                color: productBlockOptions.maxProducts === n ? '#fff' : colors.text,
-              }}
+              aria-label="Previous page"
+              disabled={currentPageIndex === 0}
+              onClick={() => setCurrentPageIndex((p) => Math.max(0, p - 1))}
+              className="rounded p-1 text-gray-600 hover:bg-gray-200 disabled:opacity-40 disabled:hover:bg-transparent"
+              data-testid="canvas-page-prev"
             >
-              {n === 0 ? 'All' : String(n)}
+              ‹
             </button>
-          ))}
-        </div>
-        {/* Columns toolbar */}
-        <div className="mb-2 flex items-center gap-1.5 flex-wrap">
-          <span className="shrink-0 text-[10px]" style={{ color: colors.labelText }}>Cols</span>
-          {([0, 1, 2, 3, 4] as const).map((c) => (
+            <span className="min-w-[4ch] text-center text-xs font-medium text-gray-600 tabular-nums" data-testid="canvas-page-indicator">
+              {currentPageIndex + 1} / {pages.length}
+            </span>
             <button
-              key={c}
               type="button"
-              data-testid={`col-btn-${c}`}
-              onClick={() => setProductBlockField('columns', c)}
-              className="rounded px-1.5 py-0.5 text-[10px] font-semibold transition-colors"
-              style={{
-                background: productBlockOptions.columns === c ? style.accentColor : 'rgba(0,0,0,0.07)',
-                color: productBlockOptions.columns === c ? '#fff' : colors.text,
-              }}
+              aria-label="Next page"
+              disabled={currentPageIndex >= pages.length - 1}
+              onClick={() => setCurrentPageIndex((p) => Math.min(pages.length - 1, p + 1))}
+              className="rounded p-1 text-gray-600 hover:bg-gray-200 disabled:opacity-40 disabled:hover:bg-transparent"
+              data-testid="canvas-page-next"
             >
-              {c === 0 ? 'Auto' : c}
+              ›
             </button>
-          ))}
-          <span className="ml-2 shrink-0 text-[10px]" style={{ color: colors.labelText }}>Fields</span>
-          {FIELD_TOGGLES.map(({ key, label }) => (
-            <button
-              key={key}
-              type="button"
-              data-testid={`field-toggle-${key}`}
-              onClick={() => setShowField(key, !showFields[key])}
-              className="rounded px-1.5 py-0.5 text-[10px] font-semibold transition-colors"
-              style={{
-                background: showFields[key] ? style.accentColor : 'rgba(0,0,0,0.07)',
-                color: showFields[key] ? '#fff' : colors.labelText,
-              }}
+          </div>
+        )}
+        {/* Compact controls bar */}
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1.5 rounded-lg bg-gray-50 px-2.5 py-2 ring-1 ring-gray-100">
+          {!isMultiPage && (
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] font-medium text-gray-400">Show</span>
+            {([0, 3, 5, 10, 20] as const).map((n) => (
+              <ToolbarBtn key={n} active={productBlockOptions.maxProducts === n} data-testid={n === 0 ? 'show-all-btn' : `show-${n}-btn`} onClick={() => setProductBlockField('maxProducts', n)}>
+                {n === 0 ? 'All' : String(n)}
+              </ToolbarBtn>
+            ))}
+          </div>
+          )}
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] font-medium text-gray-400">Cols</span>
+            {([0, 1, 2, 3, 4] as const).map((c) => (
+              <ToolbarBtn key={c} active={productBlockOptions.columns === c} data-testid={`col-btn-${c}`} onClick={() => setProductBlockField('columns', c)}>
+                {c === 0 ? 'Auto' : c}
+              </ToolbarBtn>
+            ))}
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] font-medium text-gray-400">Fields</span>
+            {FIELD_TOGGLES.map(({ key, label }) => (
+              <ToolbarBtn key={key} active={showFields[key]} data-testid={`field-toggle-${key}`} onClick={() => setShowField(key, !showFields[key])}>
+                {label}
+              </ToolbarBtn>
+            ))}
+          </div>
+          <div className="flex items-center gap-1">
+            <span className="text-[10px] font-medium text-gray-400">Show</span>
+            <ToolbarBtn
+              active={productBlockOptions.showProductCount !== false}
+              data-testid="show-product-count-btn"
+              onClick={() => setProductBlockField('showProductCount', productBlockOptions.showProductCount === false)}
             >
-              {label}
-            </button>
-          ))}
+              Count
+            </ToolbarBtn>
+          </div>
         </div>
 
-        {/* Product image size control (STORY-52) */}
-        <div className="mb-2.5 flex items-center gap-2" data-testid="product-image-size-control">
-          <span className="shrink-0 text-[10px]" style={{ color: colors.labelText }}>Photo size</span>
+        {/* Photo size slider */}
+        <div className="flex items-center gap-2 opacity-60 transition-opacity hover:opacity-100" data-testid="product-image-size-control">
+          <span className="shrink-0 text-[10px] font-medium text-gray-400">Photo</span>
           <input
             type="range"
             min={MIN_PRODUCT_IMAGE_HEIGHT}
@@ -725,7 +879,7 @@ export default function AdCanvasEditor({
             step={4}
             value={productImageHeight}
             onChange={(e) => onProductImageHeightChange?.(Number(e.target.value))}
-            className="flex-1 accent-orange-500 cursor-pointer"
+            className="h-1 flex-1 cursor-pointer appearance-none rounded-full accent-orange-500"
             aria-label="Product image size"
             data-testid="product-image-size-slider"
           />
@@ -735,216 +889,188 @@ export default function AdCanvasEditor({
             max={MAX_PRODUCT_IMAGE_HEIGHT}
             value={productImageHeight}
             onChange={(e) => {
-              const v = Math.min(
-                MAX_PRODUCT_IMAGE_HEIGHT,
-                Math.max(MIN_PRODUCT_IMAGE_HEIGHT, Number(e.target.value) || DEFAULT_PRODUCT_IMAGE_HEIGHT),
-              );
+              const v = Math.min(MAX_PRODUCT_IMAGE_HEIGHT, Math.max(MIN_PRODUCT_IMAGE_HEIGHT, Number(e.target.value) || DEFAULT_PRODUCT_IMAGE_HEIGHT));
               onProductImageHeightChange?.(v);
             }}
-            className="w-12 rounded-md border border-white/10 bg-white/5 px-1.5 py-1 text-center text-xs focus:border-orange-500/50 focus:outline-none"
-            style={{ color: colors.text }}
+            className="w-10 rounded border border-gray-200 bg-white px-1 py-0.5 text-center text-[10px] text-gray-600 focus:border-orange-400 focus:outline-none"
             aria-label="Product image size value"
             data-testid="product-image-size-input"
           />
-          <span className="text-[10px] select-none" style={{ color: colors.labelText }}>px</span>
         </div>
 
         {/* Product grid */}
         <div
-          style={{
-            display: 'grid',
-            gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))`,
-            gap: '8px',
-          }}
+          className="grid gap-2"
+          style={{ gridTemplateColumns: `repeat(${cols}, minmax(0, 1fr))` }}
         >
-          {shown.map((p, i) => (
-            <div
-              key={i}
-              style={{
-                background: '#fff',
-                borderRadius: '10px',
-                padding: '6px',
-                boxShadow: '0 1px 4px rgba(0,0,0,0.08)',
-              }}
-            >
-              {/* Product image — clickable when onAssignProductPhoto provided (STORY-55) */}
+          {shownEntries.map(({ product: p, globalIndex }) => (
+            <div key={globalIndex} className="overflow-hidden rounded-lg border border-gray-100 bg-white p-1.5 shadow-sm transition hover:shadow-md">
+              {/* Product image */}
               {showFields.image && (
                 p.imageDataUri ? (
                   <div
-                    style={{
-                      width: '100%',
-                      height: `${productImageHeight}px`,
-                      borderRadius: '8px',
-                      overflow: 'hidden',
-                      boxShadow: '0 1px 6px rgba(0,0,0,0.10)',
-                      background: '#f3f4f6',
-                      position: 'relative',
-                      cursor: onAssignProductPhoto ? 'pointer' : 'default',
-                    }}
-                    data-testid={`product-image-wrap-${i}`}
-                    onClick={onAssignProductPhoto ? (e) => {
-                      const rect = e.currentTarget.getBoundingClientRect();
-                      setOpenPickerIdx((prev) => prev === i ? null : i);
-                      setPickerRect(rect);
-                    } : undefined}
-                    title={onAssignProductPhoto ? 'Click to change photo' : undefined}
+                    className="group/img relative w-full overflow-hidden rounded-md bg-gray-50"
+                    style={{ height: `${effectiveProductImageHeight}px`, cursor: imageInteractive ? 'pointer' : 'default' }}
+                    data-testid={`product-image-wrap-${globalIndex}`}
+                    onClick={imageInteractive ? (e) => handleImageAreaClick(e, globalIndex) : undefined}
+                    title={
+                      canSwap && onAssignProductPhoto
+                        ? 'Photo or swap product'
+                        : canSwap
+                          ? 'Swap product from catalog'
+                          : onAssignProductPhoto
+                            ? 'Click to change photo'
+                            : undefined
+                    }
                   >
                     <img
                       src={p.imageDataUri}
                       alt={p.name}
-                      style={{ width: '100%', height: '100%', objectFit: 'contain', display: 'block' }}
+                      className="h-full w-full object-contain"
+                      referrerPolicy={/^https?:\/\//i.test(p.imageDataUri) ? 'no-referrer' : undefined}
                     />
-                    {onAssignProductPhoto && (
-                      <div style={{
-                        position: 'absolute', inset: 0, background: 'rgba(0,0,0,0)',
-                        display: 'flex', alignItems: 'center', justifyContent: 'center',
-                        transition: 'background 0.15s',
-                      }}
-                      onMouseEnter={e => (e.currentTarget.style.background = 'rgba(0,0,0,0.35)')}
-                      onMouseLeave={e => (e.currentTarget.style.background = 'rgba(0,0,0,0)')}
-                      >
-                        <span style={{ fontSize: '9px', color: '#fff', fontWeight: 700, opacity: 0, pointerEvents: 'none' }}>Change</span>
+                    {imageInteractive && (
+                      <div className="absolute inset-0 flex items-center justify-center bg-black/0 transition-colors group-hover/img:bg-black/30">
+                        <span className="text-[10px] font-semibold text-white opacity-0 transition-opacity group-hover/img:opacity-100">
+                          {canSwap && onAssignProductPhoto ? 'Choose' : canSwap ? 'Swap' : 'Change'}
+                        </span>
                       </div>
                     )}
                   </div>
                 ) : (
                   <div
+                    className="flex w-full flex-col items-center justify-center gap-0.5 rounded-md border-[1.5px] border-dashed transition"
                     style={{
-                      width: '100%',
-                      height: `${productImageHeight}px`,
-                      background: '#f0f4ff',
-                      borderRadius: '8px',
-                      overflow: 'hidden',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '2px',
-                      cursor: onAssignProductPhoto ? 'pointer' : 'default',
-                      border: onAssignProductPhoto ? '1.5px dashed #f97316' : '1.5px dashed #d1d5db',
-                      transition: 'border-color 0.15s, background 0.15s',
+                      height: `${effectiveProductImageHeight}px`,
+                      borderColor: imageInteractive ? '#f97316' : '#e5e7eb',
+                      background: imageInteractive ? '#fff7ed' : '#f9fafb',
+                      cursor: imageInteractive ? 'pointer' : 'default',
                     }}
-                    data-testid={`product-no-image-${i}`}
-                    onClick={onAssignProductPhoto ? (e) => {
-                      const rect = e.currentTarget.getBoundingClientRect();
-                      setOpenPickerIdx((prev) => prev === i ? null : i);
-                      setPickerRect(rect);
-                    } : undefined}
-                    title={onAssignProductPhoto ? 'Click to add photo' : undefined}
-                    onMouseEnter={onAssignProductPhoto ? e => { (e.currentTarget as HTMLDivElement).style.background = '#fff7ed'; } : undefined}
-                    onMouseLeave={onAssignProductPhoto ? e => { (e.currentTarget as HTMLDivElement).style.background = '#f0f4ff'; } : undefined}
+                    data-testid={`product-no-image-${globalIndex}`}
+                    onClick={imageInteractive ? (e) => handleImageAreaClick(e, globalIndex) : undefined}
+                    title={
+                      canSwap && onAssignProductPhoto
+                        ? 'Photo or swap product'
+                        : canSwap
+                          ? 'Swap product from catalog'
+                          : onAssignProductPhoto
+                            ? 'Click to add photo'
+                            : undefined
+                    }
                   >
-                    <span style={{ fontSize: '16px' }}>📷</span>
-                    <span style={{ fontSize: '9px', color: onAssignProductPhoto ? '#f97316' : '#9ca3af', fontWeight: onAssignProductPhoto ? 600 : 400 }}>
-                      {onAssignProductPhoto ? 'Add photo' : 'No img'}
+                    <span className="text-sm">📷</span>
+                    <span className={`text-[9px] font-medium ${imageInteractive ? 'text-orange-500' : 'text-gray-400'}`}>
+                      {canSwap && !onAssignProductPhoto
+                        ? 'Swap'
+                        : onAssignProductPhoto
+                          ? 'Add photo'
+                          : 'No img'}
                     </span>
                   </div>
                 )
               )}
 
-              {/* STORY-55: photo picker popover for this product cell */}
-              {openPickerIdx === i && pickerRect && onAssignProductPhoto && (
+              {openPickerIdx === globalIndex && pickerRect && onAssignProductPhoto && (
                 <PhotoPickerPopover
-                  productIndex={i}
+                  productIndex={globalIndex}
                   productName={p.name}
                   productCode={p.code}
                   productPrice={p.retailPrice ?? p.price}
                   savedPhotos={savedProductPhotos}
-                  onAssign={(dataUri) => {
-                    onAssignProductPhoto(i, dataUri);
-                    setOpenPickerIdx(null);
-                  }}
-                  onUploadAndSave={(file) => {
-                    onUploadProductPhoto?.(i, file);
-                    setOpenPickerIdx(null);
-                  }}
+                  onAssign={(dataUri) => { onAssignProductPhoto(globalIndex, dataUri); setOpenPickerIdx(null); }}
+                  onUploadAndSave={(file) => { onUploadProductPhoto?.(globalIndex, file); setOpenPickerIdx(null); }}
                   onClose={() => setOpenPickerIdx(null)}
                   anchorRect={pickerRect}
                 />
               )}
 
-              {/* Brand logo */}
-              {showFields.brandLogo && p.brandLogoDataUri && (
-                <div style={{ marginTop: '4px' }}>
-                  <img
-                    src={p.brandLogoDataUri}
-                    alt="Brand"
-                    style={{ height: '14px', maxWidth: '56px', objectFit: 'contain' }}
-                  />
-                </div>
-              )}
-
-              {/* Code */}
-              {showFields.code && p.code && (
-                <div style={{ fontSize: '9px', color: '#6b7280', marginTop: '3px' }}>
-                  {p.code}
-                </div>
-              )}
-
-              {/* Name */}
-              {showFields.name && (
-                <div
-                  style={{
-                    fontSize: '10px',
-                    fontWeight: 700,
-                    marginTop: '4px',
-                    lineHeight: 1.2,
-                    color: '#1f2937',
-                    overflow: 'hidden',
-                    textOverflow: 'ellipsis',
-                    whiteSpace: 'nowrap',
-                  }}
-                >
-                  {p.name}
-                </div>
-              )}
-
-              {/* Description */}
-              {showFields.description && p.description && (
-                <div style={{ fontSize: '9px', color: '#6b7280', marginTop: '2px', lineHeight: 1.3 }}>
-                  {p.description.slice(0, 60)}
-                </div>
-              )}
-
-              {/* Original price (strikethrough) */}
-              {showFields.originalPrice && p.originalPrice && (
-                <div style={{ fontSize: '9px', color: '#9ca3af', textDecoration: 'line-through', marginTop: '2px' }}>
-                  {p.originalPrice}{p.currency ? ` ${p.currency}` : ''}
-                </div>
-              )}
-
-              {/* Current price */}
-              {showFields.price && (p.discountPrice ?? p.price) && (
-                <div style={{ fontSize: '12px', fontWeight: 800, color: style.accentColor }}>
-                  {p.discountPrice ?? p.price}
-                  {p.currency ? ` ${p.currency}` : ''}
-                </div>
-              )}
-
-              {/* Discount badge */}
-              {showFields.discountBadge && typeof p.discountPercent === 'number' && (
-                <div style={{
-                  display: 'inline-flex',
-                  marginTop: '2px',
-                  padding: '1px 5px',
-                  borderRadius: '999px',
-                  background: style.accentColor,
-                  color: '#fff',
-                  fontSize: '9px',
-                  fontWeight: 800,
-                }}>
-                  -{Math.abs(p.discountPercent)}%
-                </div>
-              )}
+              {/* Card details */}
+              <div className="mt-1.5 space-y-0.5 px-0.5">
+                {showFields.brandLogo && p.brandLogoDataUri && (
+                  <img src={p.brandLogoDataUri} alt="Brand" className="h-3.5 max-w-[56px] object-contain" />
+                )}
+                {showFields.code && p.code && (
+                  <p className="text-[9px] text-gray-400">{p.code}</p>
+                )}
+                {showFields.name && (
+                  <p className="truncate text-[11px] font-semibold leading-tight text-gray-800">{p.name}</p>
+                )}
+                {showFields.description && p.description && (
+                  <p className="text-[9px] leading-snug text-gray-500">{p.description.slice(0, 60)}</p>
+                )}
+                {showFields.originalPrice && p.originalPrice && (
+                  <p className="text-[9px] text-gray-400 line-through">
+                    {p.originalPrice}{p.currency ? ` ${p.currency}` : ''}
+                  </p>
+                )}
+                {showFields.price && (p.discountPrice ?? p.price) && (
+                  <p className="text-xs font-extrabold" style={{ color: style.accentColor }}>
+                    {p.discountPrice ?? p.price}{p.currency ? ` ${p.currency}` : ''}
+                  </p>
+                )}
+                {showFields.discountBadge && typeof p.discountPercent === 'number' && (
+                  <span
+                    className="inline-block rounded-full px-1.5 py-px text-[9px] font-bold text-white"
+                    style={{ background: style.accentColor }}
+                  >
+                    -{Math.abs(p.discountPercent)}%
+                  </span>
+                )}
+              </div>
             </div>
           ))}
         </div>
-        {rest > 0 && (
-          <p className="mt-1 text-center text-[10px] text-gray-500">+{rest} more products</p>
+        {imageSlotMenu && (
+          <ProductImageSlotMenuPopover
+            anchorRect={imageSlotMenu.rect}
+            showChangePhoto={Boolean(onAssignProductPhoto)}
+            showSwapProduct={canSwap}
+            onClose={() => setImageSlotMenu(null)}
+            onChangePhoto={() => {
+              const m = imageSlotMenu;
+              setImageSlotMenu(null);
+              setOpenPickerIdx(m.idx);
+              setPickerRect(m.rect);
+            }}
+            onSwapProduct={() => {
+              const m = imageSlotMenu;
+              setImageSlotMenu(null);
+              setOpenSwapIdx(m.idx);
+              setPickerRect(m.rect);
+            }}
+          />
         )}
-        <p className="mt-1 text-center text-[10px] text-gray-600">
-          {products.length} product{products.length !== 1 ? 's' : ''} · manage in left panel
-        </p>
+        {openSwapIdx !== null && pickerRect && canSwap && (
+          <ProductSwapPopover
+            catalog={swapCatalog}
+            searchQuery={productPanelSearchQuery}
+            onSearchQueryChange={setProductPanelSearchQuery}
+            listOnlySearchMatches={productPanelListOnlySearchMatches}
+            excludeCatalogIndex={templateProductCatalogIndices?.[openSwapIdx] ?? null}
+            onPick={(sourceIdx) => {
+              onSwapCanvasProduct?.(openSwapIdx, sourceIdx);
+              setOpenSwapIdx(null);
+            }}
+            onClose={() => setOpenSwapIdx(null)}
+            anchorRect={pickerRect}
+          />
+        )}
+        {productBlockOptions.showProductCount !== false && (
+          <>
+            {rest > 0 && (
+              <p className="text-center text-[10px] text-gray-400" data-testid="canvas-more-label">
+                {isMultiPage
+                  ? `${rest} on next page${pages.length - currentPageIndex - 1 !== 1 ? 's' : ''} — use ‹ › to switch`
+                  : `+${rest} more`}
+              </p>
+            )}
+            <p className="text-center text-[10px] text-gray-400" data-testid="canvas-product-count">
+              {isMultiPage
+                ? `Page ${currentPageIndex + 1}: ${shownEntries.length} of ${products.length} products`
+                : `${products.length} product${products.length !== 1 ? 's' : ''}`}
+            </p>
+          </>
+        )}
       </div>
     );
   };
@@ -974,35 +1100,29 @@ export default function AdCanvasEditor({
     !disclaimerText.trim() &&
     !ctaButtons.some((b) => b.trim());
 
-  const showEditHint = !headline.trim() && !badgeText.trim();
-
+  /* ── Main render ──────────────────────────────────────────────── */
   return (
     <div
-      className="flex flex-col gap-1.5 p-4 min-h-full overflow-y-auto"
-      style={{ background: style.backgroundColor, fontFamily: style.fontFamily }}
+      className="flex min-h-full flex-col bg-neutral-100"
       data-testid="ad-canvas-editor"
     >
-      {/* Live-edit hint — visible until user starts typing (STORY-37) */}
-      {showEditHint && (
-        <p
-          className="text-center select-none"
-          style={{ color: colors.labelText, fontSize: '11px', padding: '2px 0 4px', letterSpacing: '0.01em' }}
-          data-testid="canvas-edit-hint"
+      {/* ── Workspace area with centered artboard ─────────────────── */}
+      <div className="flex-1 overflow-y-auto p-6">
+        <div
+          className="mx-auto w-full max-w-2xl rounded-xl shadow-lg ring-1 ring-black/[0.06]"
+          style={{ background: style.backgroundColor, fontFamily: style.fontFamily }}
         >
-          ✎ Click any field to edit — changes apply live
-        </p>
-      )}
+          <div className="flex flex-col gap-2 p-5">
 
-      {/* Company + brand logos — same row, resizable via logo height (STORY-43) */}
+      {/* Company + brand logos — hover-revealed controls (STORY-43 / STORY-99) */}
       {(companyLogoDataUri || brandLogoDataUris.length > 0) && (
         <div
-          className="rounded-xl border-2 border-transparent hover:border-orange-500/25 transition-all duration-150 pb-1"
+          className="group/logo relative rounded-lg transition-all duration-200 hover:ring-1 hover:ring-orange-400/30"
           data-testid="canvas-logo-block"
         >
-          {/* Logo controls bar */}
-          <div className="flex items-center justify-between gap-2 px-2 pt-1.5 pb-1 select-none">
-            {/* Alignment buttons */}
-            <div className="flex items-center gap-0.5" data-testid="logo-alignment-group">
+          {/* Hover-revealed controls toolbar */}
+          <div className="pointer-events-none absolute -top-2.5 left-3 right-3 z-10 flex items-center justify-between opacity-0 transition-opacity duration-150 group-hover/logo:pointer-events-auto group-hover/logo:opacity-100">
+            <div className="flex items-center gap-0.5 rounded-md bg-white/95 px-1.5 py-0.5 shadow-sm ring-1 ring-black/5 backdrop-blur-sm" data-testid="logo-alignment-group">
               {([
                 { id: 'left' as LogoAlignment, Icon: AlignLeft },
                 { id: 'center' as LogoAlignment, Icon: AlignCenter },
@@ -1014,62 +1134,44 @@ export default function AdCanvasEditor({
                   onClick={() => onLogoAlignmentChange?.(id)}
                   data-testid={`logo-align-${id}`}
                   aria-label={`Align logo ${id}`}
-                  className={`rounded p-1 transition ${
-                    logoAlignment === id
-                      ? 'bg-orange-500/20 text-orange-400'
-                      : 'text-gray-600 hover:text-gray-400 hover:bg-white/5'
-                  }`}
+                  className={`rounded p-1 transition ${logoAlignment === id ? 'bg-orange-100 text-orange-500' : 'text-gray-400 hover:text-gray-600'}`}
                 >
                   <Icon className="h-3 w-3" />
                 </button>
               ))}
             </div>
-
-            {/* Companion picker */}
             <select
               value={logoCompanion}
               onChange={(e) => onLogoCompanionChange?.(e.target.value as LogoCompanion)}
-              className="rounded-md border border-white/10 bg-white/5 px-1.5 py-0.5 text-[10px] focus:outline-none focus:ring-1 focus:ring-orange-500/50"
-              style={{ color: colors.labelText }}
+              className="rounded-md bg-white/95 px-1.5 py-0.5 text-[10px] text-gray-500 shadow-sm ring-1 ring-black/5 backdrop-blur-sm focus:outline-none"
               data-testid="logo-companion-picker"
               aria-label="Element beside logo"
             >
-              <option value="none">+ Add beside logo</option>
+              <option value="none">+ Beside logo</option>
               <option value="headline">Headline</option>
               <option value="badge">Badge</option>
               <option value="emoji">Emoji</option>
             </select>
           </div>
 
-          {/* Logo row — company logo + optional companion + brand logos (same resize) */}
+          {/* Logo row */}
           <div
-            className="px-3 py-2 flex items-center gap-3 flex-wrap"
+            className="flex flex-wrap items-center gap-3 px-3 py-3"
             style={{
-              justifyContent:
-                logoAlignment === 'left' ? 'flex-start' : logoAlignment === 'right' ? 'flex-end' : 'center',
+              justifyContent: logoAlignment === 'left' ? 'flex-start' : logoAlignment === 'right' ? 'flex-end' : 'center',
             }}
             data-testid="canvas-logo-row"
           >
             {companyLogoDataUri && (
-              <span
-                className="logo-compat inline-block rounded-lg overflow-hidden"
-                style={{ boxShadow: '0 2px 10px rgba(0,0,0,0.1)' }}
-                data-testid="canvas-company-logo-wrap"
-              >
+              <span className="inline-block overflow-hidden rounded-lg" data-testid="canvas-company-logo-wrap">
                 <img
                   src={companyLogoDataUri}
                   alt="Company logo"
-                  style={{
-                    maxHeight: `${logoHeight}px`,
-                    maxWidth: `${Math.round(logoHeight * 3.75)}px`,
-                    objectFit: 'contain',
-                    flexShrink: 0,
-                    transition: 'max-height 0.1s ease',
-                  }}
+                  className="shrink-0 object-contain transition-all duration-100"
+                  style={{ maxHeight: `${logoHeight}px`, maxWidth: `${Math.round(logoHeight * 3.75)}px` }}
                 />
               </span>
             )}
-            {/* Companion element inline */}
             {logoCompanion === 'headline' && (
               <input
                 type="text"
@@ -1078,17 +1180,12 @@ export default function AdCanvasEditor({
                 onFocus={onFocus}
                 onBlur={onBlur}
                 placeholder="Headline beside logo…"
+                className="min-w-[80px] max-w-[200px] border-none bg-transparent outline-none placeholder:opacity-30"
                 style={{
                   fontSize: `${Math.max(14, Math.min(28, Math.round(logoHeight * 0.45)))}px`,
                   fontWeight: 800,
                   color: colors.text,
                   fontFamily: style.fontFamily,
-                  minWidth: '80px',
-                  maxWidth: '200px',
-                  background: 'transparent',
-                  border: 'none',
-                  outline: 'none',
-                  borderBottom: `1.5px dashed ${colors.borderColor}`,
                 }}
                 data-testid="logo-companion-headline-input"
               />
@@ -1101,110 +1198,63 @@ export default function AdCanvasEditor({
                 onFocus={onFocus}
                 onBlur={onBlur}
                 placeholder="Badge…"
-                style={{
-                  background: style.accentColor,
-                  color: '#fff',
-                  fontWeight: 800,
-                  fontSize: '14px',
-                  borderRadius: '999px',
-                  padding: '5px 14px',
-                  border: 'none',
-                  outline: 'none',
-                  textAlign: 'center',
-                  minWidth: '60px',
-                }}
-                className="focus:ring-2 focus:ring-white/30"
+                className="rounded-full px-3.5 py-1 text-center text-sm font-extrabold text-white focus:outline-none focus:ring-2 focus:ring-white/40 placeholder:text-white/50"
+                style={{ background: style.accentColor, minWidth: '60px' }}
                 data-testid="logo-companion-badge-input"
               />
             )}
             {logoCompanion === 'emoji' && (
-              <div className="group/logo-emoji relative">
-                <button
-                  type="button"
-                  className="rounded-lg border border-white/10 bg-white/5 px-2 py-1.5 leading-none hover:bg-white/10 focus:outline-none"
-                  style={{ fontSize: `${Math.max(20, logoHeight - 16)}px` }}
-                  title="Pick emoji"
-                  data-testid="logo-companion-emoji-button"
-                >
-                  {emojiOrIcon || '○'}
-                </button>
-                <div className="pointer-events-none absolute top-full left-0 z-10 mt-1 hidden w-max max-w-xs flex-wrap gap-1 rounded-xl border border-white/10 bg-gray-900/95 p-2 shadow-xl backdrop-blur group-hover/logo-emoji:pointer-events-auto group-hover/logo-emoji:flex">
-                  {EMOJI_PRESETS.map(({ value, label }) => (
-                    <button
-                      key={value || 'none'}
-                      type="button"
-                      onMouseDown={(e) => { e.preventDefault(); onEmojiOrIconChange(value); }}
-                      className={`rounded px-2 py-0.5 text-sm hover:bg-white/10 ${emojiOrIcon === value ? 'bg-white/10' : ''}`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              </div>
+              <EmojiPickerPopover
+                value={emojiOrIcon}
+                onChange={onEmojiOrIconChange}
+                data-testid="logo-companion-emoji-picker"
+                trigger={
+                  <button
+                    type="button"
+                    className="rounded-lg px-2 py-1.5 leading-none transition hover:bg-black/5 focus:outline-none focus:ring-1 focus:ring-orange-400/40"
+                    style={{ fontSize: `${Math.max(20, logoHeight - 16)}px` }}
+                    title="Pick emoji"
+                    data-testid="logo-companion-emoji-button"
+                  >
+                    {emojiOrIcon || '○'}
+                  </button>
+                }
+              />
             )}
-            {/* Per-product brand logos in header row (STORY-48: logo-compat, scales with company logo) */}
             {brandLogoDataUris.map((dataUri, i) => (
-              <span
-                key={i}
-                className="logo-compat inline-block rounded-lg overflow-hidden"
-                style={{ boxShadow: '0 2px 10px rgba(0,0,0,0.1)' }}
-                data-testid={`canvas-brand-logo-wrap-${i}`}
-              >
+              <span key={i} className="inline-block overflow-hidden rounded-lg" data-testid={`canvas-brand-logo-wrap-${i}`}>
                 <img
                   src={dataUri}
                   alt=""
-                  style={{
-                    maxHeight: `${logoHeight}px`,
-                    maxWidth: `${Math.round(logoHeight * 3.75)}px`,
-                    objectFit: 'contain',
-                    flexShrink: 0,
-                    transition: 'max-height 0.1s ease',
-                  }}
+                  className="shrink-0 object-contain transition-all duration-100"
+                  style={{ maxHeight: `${logoHeight}px`, maxWidth: `${Math.round(logoHeight * 3.75)}px` }}
                   data-testid={`canvas-brand-logo-${i}`}
                 />
               </span>
             ))}
-            {/* STORY-47: Header brand logos — right-aligned, fixed 32px height */}
             {headerBrandLogoDataUris && headerBrandLogoDataUris.length > 0 && (
-              <div
-                style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}
-                data-testid="header-brand-logos"
-              >
+              <div className="ml-auto flex flex-wrap items-center gap-2.5" data-testid="header-brand-logos">
                 {headerBrandLogoDataUris.slice(0, HEADER_BRAND_LOGO_MAX_COUNT).map((src, i) => (
-                  <span
-                    key={i}
-                    className="brand-logo-compat inline-block rounded overflow-hidden"
-                    style={{ boxShadow: '0 2px 8px rgba(0,0,0,0.1)' }}
-                  >
-                    <img
-                      src={src}
-                      alt="Brand"
-                      style={{
-                        height: `${HEADER_BRAND_LOGO_HEIGHT_PX}px`,
-                        maxWidth: `${HEADER_BRAND_LOGO_MAX_WIDTH_PX}px`,
-                        objectFit: 'contain',
-                      }}
-                    />
+                  <span key={i} className="inline-block overflow-hidden rounded">
+                    <img src={src} alt="Brand" className="object-contain" style={{ height: `${HEADER_BRAND_LOGO_HEIGHT_PX}px`, maxWidth: `${HEADER_BRAND_LOGO_MAX_WIDTH_PX}px` }} />
                   </span>
                 ))}
               </div>
             )}
           </div>
 
-          {/* Resize handle — drag down/up to change logo height */}
+          {/* Compact resize — hover-revealed */}
           <div
             onMouseDown={startLogoResize}
             data-testid="logo-resize-handle"
-            className="mx-3 flex cursor-ns-resize items-center justify-center gap-1 rounded-md py-0.5 transition hover:bg-white/5"
+            className="mx-auto flex w-16 cursor-ns-resize items-center justify-center rounded-b-lg py-1 opacity-0 transition-opacity group-hover/logo:opacity-100"
             title={`Logo height: ${logoHeight}px — drag to resize`}
           >
-            <div className="h-0.5 w-8 rounded-full" style={{ background: colors.borderColor }} />
-            <span className="text-[9px] select-none" style={{ color: colors.labelText }}>{logoHeight}px</span>
-            <div className="h-0.5 w-8 rounded-full" style={{ background: colors.borderColor }} />
+            <div className="h-0.5 w-8 rounded-full bg-gray-300" />
           </div>
 
-          {/* Size slider */}
-          <div className="flex items-center gap-2 px-3 pb-2 pt-1">
+          {/* Size slider — hover-revealed */}
+          <div className="pointer-events-none mx-3 flex items-center gap-2 pb-2 pt-0.5 opacity-0 transition-opacity group-hover/logo:pointer-events-auto group-hover/logo:opacity-100">
             <input
               type="range"
               min={MIN_LOGO_HEIGHT}
@@ -1212,7 +1262,7 @@ export default function AdCanvasEditor({
               step={2}
               value={logoHeight}
               onChange={(e) => onLogoHeightChange?.(Number(e.target.value))}
-              className="flex-1 accent-orange-500 cursor-pointer"
+              className="h-1 flex-1 cursor-pointer appearance-none rounded-full accent-orange-500"
               aria-label="Logo height"
               data-testid="logo-height-slider"
             />
@@ -1225,12 +1275,10 @@ export default function AdCanvasEditor({
                 const v = Math.min(MAX_LOGO_HEIGHT, Math.max(MIN_LOGO_HEIGHT, Number(e.target.value) || DEFAULT_LOGO_HEIGHT));
                 onLogoHeightChange?.(v);
               }}
-              className="w-12 rounded-md border border-white/10 bg-white/5 px-1.5 py-1 text-center text-xs focus:border-orange-500/50 focus:outline-none"
-              style={{ color: colors.text }}
+              className="w-10 rounded border border-gray-200 bg-white px-1 py-0.5 text-center text-[10px] text-gray-600 focus:border-orange-400 focus:outline-none"
               aria-label="Logo height value"
               data-testid="logo-height-input"
             />
-            <span className="text-[10px] select-none" style={{ color: colors.labelText }}>px</span>
           </div>
         </div>
       )}
@@ -1243,7 +1291,6 @@ export default function AdCanvasEditor({
           elementKey={key}
           onDragStart={() => handleDragStart(idx)}
           onDrop={() => handleDrop(idx)}
-          labelColor={colors.labelText}
         >
           {renderContent(key)}
         </CanvasBlock>
@@ -1251,16 +1298,25 @@ export default function AdCanvasEditor({
 
       {/* Empty state */}
       {isEmpty && (
-        <div className="flex flex-1 flex-col items-center justify-center py-12 text-center">
-          <p className="text-sm" style={{ color: colors.textMuted }}>Your ad will appear here.</p>
-          <p className="mt-1 text-xs" style={{ color: colors.labelText }}>
-            Upload a logo or add products to get started, then edit text directly above.
+        <div className="flex flex-col items-center justify-center py-16 text-center">
+          <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-br from-orange-100 to-amber-50 ring-1 ring-orange-200/60">
+            <Layers className="h-7 w-7 text-orange-400" aria-hidden />
+          </div>
+          <p className="text-sm font-medium text-gray-500">Start building your ad</p>
+          <p className="mt-1 max-w-xs text-xs text-gray-400">
+            Upload a logo, add products, or describe your design to the AI assistant below.
           </p>
         </div>
       )}
 
+          {/* STORY-109: Footer band — always last, inside padded area so margin -20px aligns to card edges */}
+          {renderFooter()}
+          </div>{/* end .flex.flex-col.gap-2.p-5 */}
+        </div>{/* end artboard card */}
+      </div>{/* end workspace scroll area */}
+
       {/* Figma-style tab-based panel system */}
-      <div className="border-t border-border bg-background flex flex-col max-h-96">
+      <div className="border-t border-border bg-background flex flex-col flex-1 min-h-0">
         <PanelTabBar
           activeTab={activePanel}
           onTabChange={setActivePanel}
@@ -1271,21 +1327,34 @@ export default function AdCanvasEditor({
         {/* Tab content */}
         <div className="flex-1 overflow-hidden flex flex-col">
           {activePanel === 'chat' && (onChatSend && chatMessages !== undefined ? (
-            <div className="h-full overflow-y-auto">
-              <AgentChatPanel
-                messages={chatMessages}
-                onSend={onChatSend}
-                pending={chatPending}
-                error={chatError}
-                model={chatModel}
-                onModelChange={onChatModelChange ?? (() => undefined)}
-                onUndo={onChatUndo ?? (() => undefined)}
-                canUndo={canChatUndo}
-                suggestionsEnabled={suggestionsEnabled}
-                onSuggestionsToggle={onSuggestionsToggle}
-                onApplySuggestion={onApplySuggestion}
-                onDismissSuggestion={onDismissSuggestion}
-              />
+            <div className="flex h-full min-h-0 flex-col">
+              {showChatWorkspaceTools ? (
+                <ChatWorkspaceTools
+                  onOpenSettingsSection={(id) => {
+                    setWorkspaceSettingsSection(id);
+                    setActivePanel('settings');
+                  }}
+                />
+              ) : null}
+              <div className="min-h-0 flex-1 flex flex-col">
+                <AgentChatPanel
+                  messages={chatMessages}
+                  onSend={onChatSend}
+                  pending={chatPending}
+                  error={chatError}
+                  model={chatModel}
+                  onModelChange={onChatModelChange ?? (() => undefined)}
+                  onUndo={onChatUndo ?? (() => undefined)}
+                  canUndo={canChatUndo}
+                  suggestionsEnabled={suggestionsEnabled}
+                  onSuggestionsToggle={onSuggestionsToggle}
+                  proactiveSessionMuted={proactiveSessionMuted}
+                  onProactiveSessionMuteToggle={onProactiveSessionMuteToggle}
+                  onApplySuggestion={onApplySuggestion}
+                  onDismissSuggestion={onDismissSuggestion}
+                  starterPrompts={chatStarterPrompts}
+                />
+              </div>
             </div>
           ) : onAiEditPrompt ? (
             <div className="p-3 h-full overflow-y-auto">
@@ -1341,30 +1410,54 @@ export default function AdCanvasEditor({
           {activePanel === 'products' && (
             <div className="h-full overflow-y-auto">
               <ProductSelectionPanel
-                allProducts={products}
+                allProducts={selectionCatalogProducts ?? products}
+                namesOnCanvas={products.map((p) => p.name)}
                 selectedProductIds={selectedProductIds}
                 onSelectionChange={setSelectedProductIds}
                 onCreateNewAd={handleCreateNewAd}
                 isCreatingAd={isCreatingNewAd}
                 creationError={creationError}
+                searchQuery={productPanelSearchQuery}
+                onSearchQueryChange={setProductPanelSearchQuery}
+                canvasScope={productPanelCanvasScope}
+                onCanvasScopeChange={setProductPanelCanvasScope}
+                listOnlySearchMatches={productPanelListOnlySearchMatches}
+                onListOnlySearchMatchesChange={setProductPanelListOnlySearchMatches}
+                onNavigateToWorkspaceSettings={navigateToWorkspaceSettings}
               />
             </div>
           )}
 
           {activePanel === 'export' && (
             <div className="h-full overflow-y-auto p-4">
-              <ExportPanel canvasElementId="ad-preview-canvas" adName="ad-creative" />
+              <ExportPanel
+                canvasElementId="ad-preview-canvas"
+                adName="ad-creative"
+                htmlPerPage={htmlPerPage}
+                exportFormat={format}
+                klingCanvas={{
+                  products: products.map((p) => ({
+                    name: p.name,
+                    category: p.category,
+                    brand: p.brand,
+                  })),
+                  headline,
+                  cta: ctaButtons.map((b) => b.trim()).filter(Boolean).join(' · ') || undefined,
+                  formatLabel: format.label,
+                  formatWidth: format.width,
+                  formatHeight: format.height,
+                }}
+              />
             </div>
           )}
 
           {activePanel === 'settings' && (
-            <div className="h-full overflow-y-auto p-4">
-              <div className="space-y-4">
-                <div>
-                  <h3 className="text-sm font-semibold text-foreground mb-2">Settings</h3>
-                  <p className="text-xs text-muted-foreground">Additional settings coming soon</p>
-                </div>
-              </div>
+            <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
+              <WorkspaceSettingsPanel
+                openSection={workspaceSettingsSection}
+                onOpenSectionChange={setWorkspaceSettingsSection}
+                onCatalogSync={onCatalogSync}
+              />
             </div>
           )}
         </div>

@@ -58,4 +58,13 @@ describe('retail-promo-log', () => {
     expect(() => logRetailPromoEvent('generate_start')).not.toThrow();
     globalThis.console = orig;
   });
+
+  it('logs STORY-169 suggestion funnel events with hashed tip key', () => {
+    expect(() =>
+      logRetailPromoEvent('suggestion_shown', { actionsCount: 2, tipKeyHash: 'a1b2c3d4' }),
+    ).not.toThrow();
+    expect(() => logRetailPromoEvent('proactive_suggestions_session_mute', { muted: true })).not.toThrow();
+    const logs = getSessionLogs();
+    expect(logs.some((e) => e.type === 'suggestion_shown' && e.payload?.tipKeyHash === 'a1b2c3d4')).toBe(true);
+  });
 });

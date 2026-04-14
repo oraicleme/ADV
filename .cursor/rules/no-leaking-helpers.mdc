@@ -1,0 +1,12 @@
+---
+description: Don't export utilities that have no in-app consumer — YAGNI, keep API surface small
+alwaysApply: true
+---
+
+# No Leaking Helpers
+
+Do **not** export helper functions or modules that have no clear in-app consumer.
+
+- **Rule:** Only export when (a) multiple call sites in the app use it, or (b) it is part of a defined public API. Prefer logic inside the component or in a non-exported (internal) module.
+- **"Leaking"** = exported but only used by tests or "for future use" — adds surface area and refactor cost without benefit.
+- **OK:** Internal module with a single export used only by one component (e.g. `preview-html.ts` used only by AgentChat) — document as internal in the file header; no need to inline unless it simplifies the component.

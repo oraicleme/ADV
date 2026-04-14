@@ -16,6 +16,10 @@ export interface PhotoPickerPopoverProps {
   onClose: () => void;
   /** Bounding rect of the trigger button — used for fixed positioning. */
   anchorRect?: DOMRect;
+  /** STORY-210: Embed in modal (no portal); `anchorRect` not required. */
+  variant?: 'popover' | 'inline';
+  /** When `variant` is inline, hide header close if the parent dialog already has one. */
+  showHeaderClose?: boolean;
 }
 
 export default function PhotoPickerPopover({
@@ -25,11 +29,15 @@ export default function PhotoPickerPopover({
   onUploadAndSave,
   onClose,
   anchorRect,
+  variant = 'popover',
+  showHeaderClose = true,
 }: PhotoPickerPopoverProps) {
   const popoverRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const isInline = variant === 'inline';
 
   useEffect(() => {
+    if (isInline) return;
     const handlePointerDown = (e: PointerEvent) => {
       if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) {
         onClose();
@@ -37,15 +45,16 @@ export default function PhotoPickerPopover({
     };
     document.addEventListener('pointerdown', handlePointerDown);
     return () => document.removeEventListener('pointerdown', handlePointerDown);
-  }, [onClose]);
+  }, [onClose, isInline]);
 
   useEffect(() => {
+    if (isInline) return;
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') onClose();
     };
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [onClose]);
+  }, [onClose, isInline]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -54,40 +63,28 @@ export default function PhotoPickerPopover({
     onClose();
   };
 
-  // Position below the anchor, or above if near bottom of viewport
-  if (!anchorRect) return null;
-  const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 600;
-  const spaceBelow = viewportHeight - anchorRect.bottom;
-  const popoverHeight = 320;
-  const top =
-    spaceBelow >= popoverHeight + 8
-      ? anchorRect.bottom + 4
-      : anchorRect.top - popoverHeight - 4;
-  const left = Math.min(anchorRect.left, (typeof window !== 'undefined' ? window.innerWidth : 800) - 296);
+  const shellClass =
+    'rounded-xl border border-white/10 bg-[#1a1a1f] shadow-xl shadow-black/60 dark:bg-[#1a1a1f]';
 
-  const content = (
-    <div
-      ref={popoverRef}
-      data-testid="photo-picker-popover"
-      style={{ top, left, position: 'fixed', zIndex: 9999 }}
-      className="w-72 rounded-xl border border-white/10 bg-[#1a1a1f] shadow-xl shadow-black/60"
-      role="dialog"
-      aria-label={`Choose photo for ${productName}`}
-    >
-      {/* Header */}
-      <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
-        <span className="text-xs font-semibold uppercase tracking-widest text-gray-400">
-          Choose Photo
-        </span>
+  const header = (
+    <div className="flex items-center justify-between border-b border-white/10 px-3 py-2">
+      <span className="text-xs font-semibold uppercase tracking-widest text-gray-400">Choose Photo</span>
+      {showHeaderClose && (
         <button
           type="button"
           onClick={onClose}
           data-testid="photo-picker-close"
-          className="rounded p-0.5 text-gray-500 hover:bg-white/10 hover:text-gray-300 transition"
+          className="rounded p-0.5 text-gray-500 transition hover:bg-white/10 hover:text-gray-300"
         >
           <X className="h-3.5 w-3.5" />
         </button>
-      </div>
+      )}
+    </div>
+  );
+
+  const body = (
+    <>
+      {header}
 
       {/* Section A: Saved photos library */}
       <div className="max-h-52 overflow-y-auto px-3 py-2">
@@ -164,6 +161,44 @@ export default function PhotoPickerPopover({
           onChange={handleFileChange}
         />
       </div>
+    </>
+  );
+
+  if (isInline) {
+    return (
+      <div
+        ref={popoverRef}
+        data-testid="photo-picker-popover"
+        data-variant="inline"
+        className={`w-full ${shellClass}`}
+        role="region"
+        aria-label={`Choose photo for ${productName}`}
+      >
+        {body}
+      </div>
+    );
+  }
+
+  if (!anchorRect) return null;
+  const viewportHeight = typeof window !== 'undefined' ? window.innerHeight : 600;
+  const spaceBelow = viewportHeight - anchorRect.bottom;
+  const popoverHeight = 320;
+  const top =
+    spaceBelow >= popoverHeight + 8
+      ? anchorRect.bottom + 4
+      : anchorRect.top - popoverHeight - 4;
+  const left = Math.min(anchorRect.left, (typeof window !== 'undefined' ? window.innerWidth : 800) - 296);
+
+  const content = (
+    <div
+      ref={popoverRef}
+      data-testid="photo-picker-popover"
+      style={{ top, left, position: 'fixed', zIndex: 9999 }}
+      className={`w-72 ${shellClass}`}
+      role="dialog"
+      aria-label={`Choose photo for ${productName}`}
+    >
+      {body}
     </div>
   );
 

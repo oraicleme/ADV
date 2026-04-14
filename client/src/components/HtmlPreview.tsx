@@ -1,5 +1,6 @@
 import React, { useMemo, useCallback, useState, useEffect, useRef } from 'react';
 import ReactDOM from 'react-dom';
+import { toast } from 'sonner';
 import { Download, Copy, Check, Image, Loader2, X, ZoomIn, Maximize2 } from 'lucide-react';
 import type { FormatPreset } from '../lib/ad-layouts/types';
 import {
@@ -102,6 +103,13 @@ export function AdPreviewActions({
           quality: 0.9,
         });
         downloadBlob(blob, exportFilename(width, height, fmt));
+        toast.success(`Exported as ${fmt.toUpperCase()}`);
+      } catch (err) {
+        const message = err instanceof Error ? err.message : String(err);
+        toast.error(`Export failed: ${message}`);
+        if (message.includes('Tainted') || message.includes('CORS') || message.includes('canvas')) {
+          toast.info('Tip: Use "Download" for HTML if the ad uses external images.');
+        }
       } finally {
         setExporting(null);
       }

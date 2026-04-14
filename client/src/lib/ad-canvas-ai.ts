@@ -43,10 +43,13 @@ export interface CatalogSummary {
   totalProducts: number;
   /** Number currently selected for the ad. */
   selectedCount: number;
-  /** Top 10 categories present, sorted by count descending. Use EXACT names for catalog_filter. */
+  /** All categories present, sorted by count descending. Use EXACT names for catalog_filter. */
   categories: Array<{ name: string; count: number }>;
-  /** Up to 10 sample product names to show the AI naming conventions. */
-  sampleNames: string[];
+  /**
+   * Sample product names — kept optional for backward compat with sidebar interpretProductSearch.
+   * Not sent to the main agent chat (STORY-119: agent uses query+hintCategories instead).
+   */
+  sampleNames?: string[];
 }
 
 /** Snapshot of the canvas editor state passed to the AI. */

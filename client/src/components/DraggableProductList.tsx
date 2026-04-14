@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   DndContext,
   closestCenter,
@@ -136,6 +136,15 @@ export function DraggableProductList({
   onPreview,
 }: DraggableProductListProps) {
   const [orderedProducts, setOrderedProducts] = useState(products);
+
+  /** STORY-160: When parent search/filter changes `products`, replace local order — stale state was showing the full catalog. */
+  const productsSignature = useMemo(
+    () => products.map((p, i) => `${i}\t${p.name}\t${p.code ?? ''}`).join('\n'),
+    [products],
+  );
+  useEffect(() => {
+    setOrderedProducts(products);
+  }, [productsSignature, products]);
 
   const sensors = useSensors(
     useSensor(PointerSensor),

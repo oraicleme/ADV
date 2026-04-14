@@ -107,7 +107,8 @@ export function reorderBrandLogos(orderedIds: string[]): void {
   orderedIds.forEach((id, index) => {
     const entry = entryMap.get(id);
     if (entry) {
-      entry.order = index;
+      // Invert: first in array gets highest value so descending sort shows it first
+      entry.order = orderedIds.length - 1 - index;
     }
   });
   

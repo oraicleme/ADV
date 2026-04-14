@@ -6,6 +6,7 @@ import {
   saveMobilelandMapToLocalStorage,
   fetchMobilelandImageMap,
   getProductImageUrl,
+  normalizeProductCodeForMobilelandLookup,
 } from './mobileland-images';
 
 const LS_KEY = 'mobileland_image_map_v1';
@@ -29,6 +30,25 @@ describe('isMobilelandImageEnabled', () => {
     } finally {
       (import.meta.env as Record<string, string>).VITE_MOBILELAND_ENABLED = orig ?? '';
     }
+  });
+});
+
+describe('normalizeProductCodeForMobilelandLookup', () => {
+  it('returns empty for null/undefined', () => {
+    expect(normalizeProductCodeForMobilelandLookup(null)).toBe('');
+    expect(normalizeProductCodeForMobilelandLookup(undefined)).toBe('');
+  });
+
+  it('stringifies finite numbers (Excel numeric cell)', () => {
+    expect(normalizeProductCodeForMobilelandLookup(1052510)).toBe('1052510');
+  });
+
+  it('trims float-like strings', () => {
+    expect(normalizeProductCodeForMobilelandLookup('1052510.0')).toBe('1052510');
+  });
+
+  it('strips NBSP and trims', () => {
+    expect(normalizeProductCodeForMobilelandLookup(' 1052510\u00A0')).toBe('1052510');
   });
 });
 

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search, CheckSquare, Square, Filter, ChevronDown, ChevronUp, Minus } from 'lucide-react';
+import { Search, CheckSquare, Square, Filter, ChevronDown, ChevronUp, Minus, Sparkles } from 'lucide-react';
 
 /** Count per classification value (e.g. category from Excel or API). Keys are whatever the data provides. */
 export type CategoryCounts = Record<string, number>;
@@ -34,6 +34,10 @@ interface ProductFilterProps {
   /** Collapsible: when false, only header with summary is shown. */
   expanded?: boolean;
   onExpandedChange?: (expanded: boolean) => void;
+  /** When set, show "Pretraži s AI" button; called with current search query. */
+  onAiSearch?: (query: string) => void | Promise<void>;
+  /** True while AI search is in progress. */
+  aiSearchLoading?: boolean;
 }
 
 function defaultDimensionLabel(dim: string): string {
@@ -63,6 +67,8 @@ export default function ProductFilter({
   onDeselectDimensionValue,
   expanded = true,
   onExpandedChange,
+  onAiSearch,
+  aiSearchLoading = false,
 }: ProductFilterProps) {
   const useMulti = classificationCounts != null && Object.keys(classificationCounts).length > 0;
   const dimensions = useMulti ? (dimensionOrder ?? Object.keys(classificationCounts!).sort()) : [];
@@ -151,17 +157,36 @@ export default function ProductFilter({
       {isCollapsible && header}
       {(!isCollapsible || isExpanded) && (
         <div className="space-y-2" data-testid="filters-content">
-      {/* Search */}
-      <div className="relative">
-        <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-500" />
-        <input
-          data-testid="product-search"
-          type="text"
-          placeholder="Search by name or code…"
-          value={searchQuery}
-          onChange={(e) => onSearchChange(e.target.value)}
-          className="w-full rounded-lg border border-white/10 bg-white/5 py-2 pl-8 pr-3 text-sm text-gray-200 placeholder:text-gray-600 focus:border-orange-500/50 focus:outline-none"
-        />
+      {/* Search + AI */}
+      <div className="flex gap-1.5">
+        <div className="relative flex-1">
+          <Search className="absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-500" />
+          <input
+            data-testid="product-search"
+            type="text"
+            placeholder="Search by name or code…"
+            value={searchQuery}
+            onChange={(e) => onSearchChange(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' && searchQuery.trim() && onAiSearch) {
+                onAiSearch(searchQuery.trim());
+              }
+            }}
+            className="w-full rounded-lg border border-white/10 bg-white/5 py-2 pl-8 pr-3 text-sm text-gray-200 placeholder:text-gray-600 focus:border-orange-500/50 focus:outline-none"
+          />
+        </div>
+        {onAiSearch && (
+          <button
+            type="button"
+            onClick={() => searchQuery.trim() && onAiSearch(searchQuery.trim())}
+            disabled={!searchQuery.trim() || aiSearchLoading}
+            title="Pretraži s AI — tumači prirodni jezik (npr. auto punjači usb-c)"
+            data-testid="product-search-ai"
+            className="shrink-0 rounded-lg border border-orange-500/30 bg-orange-500/10 px-2.5 py-2 text-orange-400 transition hover:bg-orange-500/20 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            <Sparkles className="h-4 w-4" />
+          </button>
+        )}
       </div>
 
       {/* Multi-dimension: one row per dimension */}

@@ -1,0 +1,246 @@
+---
+description: Industry-standard rules for data integration — any file, API, or database source feeding into the product enrichment pipeline.
+globs:
+  - "packages/landing/src/lib/excel-parser.ts"
+  - "packages/landing/src/lib/text-parser.ts"
+  - "packages/landing/src/lib/product-source-adapter.ts"
+  - "packages/landing/src/lib/mobileland-images.ts"
+  - "packages/landing/src/lib/parse-utils.ts"
+  - "packages/landing/src/components/ProductDataInput.tsx"
+alwaysApply: false
+---
+
+# Data Integration Standards
+
+This ruleset governs how product data enters the system from **any source** (Excel/CSV upload,
+pasted text, JSON API, database export, or web scraping) and how it is enriched with data
+from online catalogs (currently mobileland.me, extensible to any catalog).
+
+---
+
+## 1. Source Adapters — One Adapter per Source Type
+
+Every data source MUST be wrapped in a class that implements `ProductSourceAdapter`:
+
+```ts
+interface ProductSourceAdapter {
+  id: string;        // machine-readable, e.g. "excel", "url-json", "woocommerce-api"
+  label: string;     // human-readable, e.g. "Upload Excel"
+  load(params: unknown): Promise<ProductItem[]>;
+}
+```
+
+**Current adapters:**
+| Adapter | File | Source type |
+|---------|------|-------------|
+| Excel/CSV | `excel-parser.ts` | `.xlsx`, `.xls`, `.csv` via `xlsx` library (Web Worker) |
+| Paste text | `text-parser.ts` | Tab/comma/newline delimited text |
+| URL JSON | `product-source-adapter.ts` (UrlJsonAdapter) | REST JSON endpoint |
+| Manual | Inline in ProductDataInput | Form entry |
+
+**To add a new source** (e.g. WooCommerce REST API, Shopify, custom DB):
+1. Create `packages/landing/src/lib/{name}-adapter.ts`
+2. Implement `ProductSourceAdapter`
+3. Return `ProductItem[]` using `normaliseProductItem()` from `product-source-adapter.ts`
+4. Register in `ProductDataInput.tsx` tabs array
+
+---
+
+## 2. Column Auto-Detection — Balkan-First, Globally Inclusive
+
+Excel/CSV column detection MUST support both Balkan and international variants. The
+priority is: **exact match → substring match**. Never require exact English headers.
+
+**Required column variant arrays in `excel-parser.ts`:**
+
+| Field | Key Variants (must include) |
+|-------|-----------------------------|
+| name | `naziv`, `ime`, `opis`, `name`, `product`, `article` |
+| code | `šifra`, `sifra`, `kod`, `code`, `sku`, `ean`, `barcode` |
+| price / MP | `cijena`, `cena`, `cjna`, `price`, `mp`, `maloprodaja` |
+| wholesale / VP | `vp`, `veleprodaja`, `wholesale` |
+| category | `kategorija`, `grupa`, `category`, `group` |
+| **discount** | **`popust`, `rabat`, `snizenje`, `discount`, `% popust`** |
+
+**Rules:**
+- Match is case-insensitive after `.toLowerCase().trim()`
+- First sheet wins; multi-sheet files are silently truncated to sheet 0 (log a warning)
+- If neither `nameCol` nor `codeCol` is detected, return a `ParseResult` with a clear error
+  message listing accepted header names — never silently return an empty product list
+
+---
+
+## 3. Discount / Rebate Normalisation
+
+Discount values come in three formats. The system MUST normalise all to an integer percentage:
+
+| Raw value | Normalised `discountPercent` |
+|-----------|------------------------------|
+| `"20%"` | `20` |
+| `"20"` | `20` |
+| `"0.20"` or `0.2` | `20` (< 1.01 treated as fractional) |
+| `"0,20"` (Balkan comma decimal) | `20` |
+| `null`, `""`, `"N/A"` | `undefined` (omit field) |
+
+Use `normaliseDiscount()` from `excel-parser.ts`. Never pass raw string discount values to
+ad layouts — always convert to `number` first.
+
+---
+
+## 4. Online Image Enrichment — Code-First, Fallback Chain
+
+Image enrichment from external catalogs (e.g. mobileland.me) follows this strict pipeline:
+
+```
+product.code (non-empty)
+  → fetch {BASE_URL}/{code}.html
+    → extract og:image → twitter:image → first <img src>
+      → return image URL
+        → on error / no match → return []
+```
+
+**Rules:**
+1. **Code is required.** If `product.code` is empty/undefined, skip the fetch entirely and
+   return `[]`. Do not attempt name-based guessing unless a dedicated search adapter is built.
+2. **Env var gates the feature.** If `PUBLIC_MOBILELAND_IMAGE_BASE` is unset, return `[]`
+   and set `isMobilelandImageEnabled() = false`. NEVER hard-code the base URL in logic.
+3. **Timeout = 10 seconds per product.** Use `AbortSignal.timeout(10_000)`.
+4. **Fail silently.** Network errors, 404s, CORS blocks → return `[]`, never throw.
+5. **Image resolution priority** (highest → lowest):
+   ```
+   mobileland image URL
+     → manually uploaded image (ProductImageUploader)
+       → product.imageDataUri (from previous session)
+         → web image search (Unsplash / configured provider)
+   ```
+
+**Adding a new image enrichment source** (e.g. a custom ERP catalog):
+- Create `packages/landing/src/lib/{name}-images.ts`
+- Expose `getProductImages(code: string): Promise<string[]>`
+- Gate with its own env var (`PUBLIC_{NAME}_IMAGE_BASE`)
+- Register in `AgentChat.tsx` image resolution chain
+
+---
+
+## 5. ParseStats — Always Report Data Quality
+
+Every `ParseResult` MUST include a fully populated `ParseStats` object:
+
+```ts
+interface ParseStats {
+  totalRows: number;
+  parsedCount: number;
+  skippedCount: number;
+  duplicateCount: number;
+  currencyDetected: string | undefined;
+  hasProductCodes: boolean;   // ← critical: gates image enrichment UX
+  hasDiscounts: boolean;      // ← informs layout selection UI
+  warnings: RowWarning[];
+}
+```
+
+**UI rules (ProductDataInput):**
+- If `isMobilelandImageEnabled() && !stats.hasProductCodes` → show amber warning:
+  _"No product codes found — add a Šifra/Code column to enable image auto-fetch"_
+- If `!isMobilelandImageEnabled() && stats.hasProductCodes` → show blue info:
+  _"Product codes detected but online enrichment is disabled — configure PUBLIC_MOBILELAND_IMAGE_BASE"_
+- If `stats.hasDiscounts` → suggest "Sale Discount" layout in the layout picker
+
+---
+
+## 6. Data Normalisation Rules
+
+All incoming data MUST pass through normalisation before reaching `ProductItem`:
+
+### Prices
+- Use `normalisePrice(raw)` from `parse-utils.ts`
+- Handles Balkan format `1.234,56` and international `1,234.56`
+- Returns a plain decimal string `"1234.56"`, never a number
+- `null`, `undefined`, empty string → `undefined`
+
+### Currency
+- Use `extractCurrency(text)` from `parse-utils.ts`
+- Normalise aliases: `KM` → `BAM`, `DIN` → `RSD`
+- Sheet-level currency detection takes priority over row-level
+
+### Deduplication
+- Use `deduplicateProducts(products)` from `parse-utils.ts`
+- Key: `product.code` (trimmed, lower-cased) → fallback to `product.name`
+- First occurrence wins; log `duplicateCount` in stats
+
+### File size
+- Hard limit: 5 MB (`MAX_FILE_SIZE` in `parse-utils.ts`)
+- Check with `checkFileSize(file)` before any parsing
+
+---
+
+## 7. ELT vs ETL Choice
+
+For this project, follow the **ELT** (Extract → Load raw → Transform in-browser) pattern:
+
+- **Extract**: Parse the raw file/API response as-is (do not clean during extraction)
+- **Load**: Store all rows (even with missing fields) into `ParseResult.products`
+- **Transform**: Apply normalisation, deduplication, enrichment after load
+
+This preserves raw data for debugging, allows flexible column remapping, and keeps the
+extraction layer simple and fast (Web Worker).
+
+Do NOT filter out products during extraction — only during deduplication. Products with
+missing prices or codes are valid and should be loaded with `undefined` for missing fields.
+
+---
+
+## 8. External API Fetching — Security & Reliability
+
+When fetching from external URLs (`UrlJsonAdapter`, mobileland.me, future catalog APIs):
+
+1. **Server-side proxy for production** — direct browser fetches to third-party sites will
+   fail due to CORS. For any integration beyond mobileland.me (which allows direct HTML
+   fetching), implement a Next.js API route proxy in `packages/control-panel`.
+2. **No API keys in client code** — all secrets go in `.env` files, accessed via `import.meta.env.PUBLIC_*`
+   (public, non-secret) or via server-side API routes (secret keys).
+3. **Rate limiting** — batch image fetches with `Promise.all()` but cap concurrent fetches
+   at 5 using a semaphore or chunked batching.
+4. **Caching** — cache image URLs in `sessionStorage` keyed by `{source}:{code}` to avoid
+   re-fetching on re-render.
+5. **Graceful degradation** — every enrichment step is optional; the ad must render with or
+   without images, prices, or codes.
+
+---
+
+## 9. Adding a New Data Source — Checklist
+
+When a new source type is requested (e.g. "fetch from our ERP", "sync from Google Sheets"):
+
+- [ ] Create `{name}-adapter.ts` implementing `ProductSourceAdapter`
+- [ ] Add column variant mappings specific to that source's schema
+- [ ] Add a new tab in `ProductDataInput.tsx` with the source's icon and label
+- [ ] Add `ParseStats.hasProductCodes` computation for the new adapter
+- [ ] Add appropriate UX warnings if the source lacks enrichment-required fields
+- [ ] Write unit tests covering: success case, empty response, malformed data, missing fields
+- [ ] Write the STORY file documenting what the source is, why it's needed, and the schema
+- [ ] Update `TRACKER.md`
+
+---
+
+## 10. Industry Reference Architecture
+
+The Oraicle data integration pipeline maps to this standard ELT reference:
+
+```
+Source Layer          Transform Layer       Serve Layer
+─────────────         ────────────────      ────────────
+Excel / CSV  ──┐
+Paste Text   ──┤ parse     normalise   ┐
+URL JSON     ──┤ ────────► deduplicate ├──► ProductItem[] ──► Ad Generator
+Manual Entry ──┘           validate    │                       (AgentChat)
+                                       │
+                           enrich      │
+                           ────────────┘
+                           mobileland.me images
+                           Unsplash web search
+                           manual upload
+```
+
+Each layer is independently testable. Never mix extraction logic with normalisation logic
+with enrichment logic in the same function.

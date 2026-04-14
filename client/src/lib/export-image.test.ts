@@ -10,6 +10,14 @@ vi.mock('html2canvas', () => ({
   default: vi.fn(),
 }));
 
+// jsdom does not implement URL.createObjectURL / revokeObjectURL
+if (!URL.createObjectURL) {
+  URL.createObjectURL = vi.fn(() => 'blob:mock-url');
+}
+if (!URL.revokeObjectURL) {
+  URL.revokeObjectURL = vi.fn();
+}
+
 const html2canvas = (await import('html2canvas')).default as ReturnType<
   typeof vi.fn
 >;
@@ -61,7 +69,7 @@ describe('export-image', () => {
       vi.clearAllMocks();
     });
 
-    it('creates a hidden wrapper and appends it to body', async () => {
+    it('creates a hidden container (iframe or div) and appends it to body', async () => {
       const mockCanvas = {
         toBlob: vi.fn((cb: (b: Blob | null) => void) => cb(new Blob())),
       };
@@ -78,11 +86,11 @@ describe('export-image', () => {
       await exportAdAsImage(options);
 
       expect(appendChildSpy).toHaveBeenCalled();
-      const wrapper = appendChildSpy.mock.calls[0][0] as HTMLElement;
-      expect(wrapper.style.position).toBe('fixed');
-      expect(wrapper.style.left).toBe('-9999px');
-      expect(wrapper.style.width).toBe('1080px');
-      expect(wrapper.style.height).toBe('1920px');
+      const appended = appendChildSpy.mock.calls[0][0] as HTMLElement;
+      expect(appended.style.position).toBe('fixed');
+      expect(appended.style.left).toBe('-9999px');
+      expect(appended.style.width).toBe('1080px');
+      expect(appended.style.height).toBe('1920px');
     });
 
     it('calls html2canvas with width and height', async () => {
@@ -98,17 +106,17 @@ describe('export-image', () => {
         format: 'png',
       });
 
-      expect(html2canvas).toHaveBeenCalledWith(
-        expect.any(HTMLElement),
-        expect.objectContaining({
-          width: 1080,
-          height: 1920,
-          scale: 1,
-        }),
-      );
+      expect(html2canvas).toHaveBeenCalled();
+      const [element, opts] = html2canvas.mock.calls[0] ?? [];
+      expect(element).toBeDefined();
+      expect(opts).toMatchObject({
+        width: 1080,
+        height: 1920,
+        scale: 1,
+      });
     });
 
-    it('removes the wrapper after export', async () => {
+    it('removes the container (iframe or wrapper) after export', async () => {
       const mockCanvas = {
         toBlob: vi.fn((cb: (b: Blob | null) => void) => cb(new Blob())),
       };
@@ -186,6 +194,77 @@ describe('export-image', () => {
         'image/jpeg',
         0.8,
       );
+    });
+
+    it('falls back to wrapper div when iframe path fails (e.g. html2canvas throws)', async () => {
+      const pngBlob = new Blob(['x'], { type: 'image/png' });
+      const mockCanvas = {
+        toBlob: vi.fn((cb: (b: Blob | null) => void) => cb(pngBlob)),
+      };
+      html2canvas
+        .mockRejectedValueOnce(new Error('Attempting to parse an unsupported color function \'oklch\''))
+        .mockResolvedValueOnce(mockCanvas);
+
+      const result = await exportAdAsImage({
+        html: '<!DOCTYPE html><html><head></head><body><div>Ad</div></body></html>',
+        width: 200,
+        height: 200,
+        format: 'png',
+      });
+
+      expect(html2canvas).toHaveBeenCalledTimes(2);
+      expect(result).toBeInstanceOf(Blob);
+      expect(result.type).toBe('image/png');
+      expect(result.size).toBeGreaterThan(0);
+    });
+
+    it('returns blob with correct type and non-empty size', async () => {
+      const pngBlob = new Blob([new Uint8Array(100)], { type: 'image/png' });
+      html2canvas.mockResolvedValue({
+        toBlob: vi.fn((cb: (b: Blob | null) => void) => cb(pngBlob)),
+      });
+
+      const result = await exportAdAsImage({
+        html: '<html><body><p>Ad</p></body></html>',
+        width: 1080,
+        height: 1920,
+        format: 'png',
+      });
+
+      expect(result.type).toBe('image/png');
+      expect(result.size).toBe(100);
+    });
+
+    it('STORY-143: resolves https img src before capture and returns blob', async () => {
+      const pngBlob = new Blob([new Uint8Array(50)], { type: 'image/png' });
+      html2canvas.mockResolvedValue({
+        toBlob: vi.fn((cb: (b: Blob | null) => void) => cb(pngBlob)),
+      });
+      const fetchMock = vi.fn().mockResolvedValue({
+        ok: true,
+        blob: () =>
+          Promise.resolve(new Blob([new Uint8Array(1)], { type: 'image/png' })),
+      });
+      vi.stubGlobal('fetch', fetchMock);
+      try {
+        const htmlWithUrl =
+          '<html><body><img alt="P" src="https://example.com/photo.png" /></body></html>';
+        const result = await exportAdAsImage({
+          html: htmlWithUrl,
+          width: 400,
+          height: 400,
+          format: 'png',
+        });
+
+        expect(result).toBeInstanceOf(Blob);
+        expect(result.type).toBe('image/png');
+        expect(fetchMock).toHaveBeenCalledWith(
+          'https://example.com/photo.png',
+          expect.objectContaining({ mode: 'cors' }),
+        );
+      } finally {
+        vi.unstubAllGlobals();
+      }
     });
   });
 });

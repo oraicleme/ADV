@@ -1,12 +1,13 @@
-import "dotenv/config";
 import express from "express";
 import { createServer } from "http";
 import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
+import { imageProxyHandler } from "../lib/image-proxy";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
+import { prewarmMobilelandCache } from "../lib/mobileland-api";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -35,6 +36,8 @@ async function startServer() {
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
   // OAuth callback under /api/oauth/callback
   registerOAuthRoutes(app);
+  // Image proxy for export (CORS bypass for product images, e.g. mobileland.me)
+  app.get("/api/image-proxy", imageProxyHandler);
   // tRPC API
   app.use(
     "/api/trpc",
@@ -59,6 +62,9 @@ async function startServer() {
 
   server.listen(port, () => {
     console.log(`Server running on http://localhost:${port}/`);
+    // Start warming the Mobileland image map cache in the background.
+    // This way the first user request hits an already-populated cache.
+    prewarmMobilelandCache();
   });
 }
 

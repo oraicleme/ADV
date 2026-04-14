@@ -9,6 +9,7 @@ import {
   renderBrandLogo,
   getDisplayPrice,
   escapeHtml,
+  computeEffectiveImageHeight,
 } from './shared';
 
 type ShowFields = ProductBlockOptions['showFields'];
@@ -21,7 +22,7 @@ const DEFAULT_SHOW: ShowFields = {
 export const renderSingleHero: LayoutRenderer = (data, format, style) => {
   const opts = data.productBlockOptions;
   const product = data.products[0];
-  const imageHeight = opts?.imageHeight || Math.floor(format.height * 0.55);
+  const imageHeight = computeEffectiveImageHeight(format, 1, opts?.imageHeight);
   const showFields: ShowFields = opts?.showFields ?? DEFAULT_SHOW;
 
   let cardHtml =
@@ -42,8 +43,8 @@ export const renderSingleHero: LayoutRenderer = (data, format, style) => {
         : '';
 
     cardHtml = [
-      '<div style="background:#fff;border-radius:18px;padding:20px;box-shadow:0 4px 14px rgba(0,0,0,0.08);">',
-      showFields.image ? `<div style="margin-bottom:16px;">${renderImage(product, imageHeight)}</div>` : '',
+      '<div style="background:#fff;color:#111827;border-radius:18px;padding:20px;box-shadow:0 4px 14px rgba(0,0,0,0.08);">',
+      showFields.image ? `<div style="margin-bottom:16px;">${renderImage(product, imageHeight, style.accentColor)}</div>` : '',
       showFields.brandLogo
         ? `<div style="display:flex;align-items:center;gap:10px;min-height:24px;">${renderBrandLogo(product)}</div>`
         : '',
