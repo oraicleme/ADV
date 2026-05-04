@@ -72,6 +72,8 @@ export const ENV = {
   klingApiBaseUrl: process.env.KLING_API_BASE_URL ?? "https://api-singapore.klingai.com",
   /** Default model_name for text-to-video (override via env). */
   klingDefaultVideoModel: process.env.KLING_DEFAULT_VIDEO_MODEL ?? "kling-v2-6",
+  /** Default model_name for image generation (Kolors). */
+  klingDefaultImageModel: process.env.KLING_DEFAULT_IMAGE_MODEL ?? "kling-v2-1",
   /**
    * STORY-198: Optional LLM query expansion before Meilisearch Stage-1 (agent catalog_filter).
    * Requires forgeApiKey. Set STAGE1_QUERY_EXPANSION=1 to enable (extra LLM cost per search).

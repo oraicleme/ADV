@@ -79,27 +79,121 @@ export function renderDocument(
   style: StyleOptions,
   content: string,
 ): string {
+  const bgColor = style.backgroundColor || '#f8fafc';
+  const textColor = getTextColorForBackground(bgColor);
+  const accentColor = style.accentColor || '#f97316';
+  // Derive a subtle card background: on dark bg use slightly lighter; on light bg use white
+  const isDark = bgColor.startsWith('#') && (() => {
+    const hex = bgColor.replace('#', '');
+    if (hex.length < 6) return false;
+    const r = parseInt(hex.slice(0,2),16)/255, g = parseInt(hex.slice(2,4),16)/255, b = parseInt(hex.slice(4,6),16)/255;
+    const lin = (v: number) => v <= 0.04045 ? v/12.92 : ((v+0.055)/1.055)**2.4;
+    return 0.2126*lin(r)+0.7152*lin(g)+0.0722*lin(b) < 0.179;
+  })();
+  const cardBg = isDark ? 'rgba(255,255,255,0.07)' : '#ffffff';
+  const cardBorder = isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.06)';
+  const cardShadow = isDark
+    ? '0 4px 24px rgba(0,0,0,0.35), 0 1px 4px rgba(0,0,0,0.25)'
+    : '0 4px 20px rgba(0,0,0,0.08), 0 1px 4px rgba(0,0,0,0.04)';
+  const priceShadow = isDark ? '0 0 20px rgba(255,255,255,0.08)' : 'none';
+  // Accent hex without #
+  const accentHex = accentColor.startsWith('#') ? accentColor.slice(1) : 'f97316';
   return `<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=${format.width}" />
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
   <style>
-    * { margin: 0; padding: 0; box-sizing: border-box; }
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-font-smoothing: antialiased; }
     body {
       width: ${format.width}px;
       height: ${format.height}px;
       display: flex;
       flex-direction: column;
-      font-family: ${style.fontFamily};
-      background: ${style.backgroundColor};
-      color: ${getTextColorForBackground(style.backgroundColor)};
+      font-family: 'Inter', ${style.fontFamily}, system-ui, sans-serif;
+      background: ${bgColor};
+      color: ${textColor};
+      overflow: hidden;
     }
-    /* STORY-48: logo–background compatibility (rounded corners + subtle shadow on light/dark) */
-    .logo-compat { display: inline-block; border-radius: 8px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); overflow: hidden; }
+    /* Premium card base */
+    .ad-card {
+      background: ${cardBg};
+      border: 1px solid ${cardBorder};
+      border-radius: 16px;
+      box-shadow: ${cardShadow};
+      overflow: hidden;
+      transition: none;
+    }
+    /* Logo compatibility */
+    .logo-compat { display: inline-block; border-radius: 10px; box-shadow: 0 2px 12px rgba(0,0,0,0.12); overflow: hidden; background: rgba(255,255,255,0.9); padding: 2px; }
     .logo-compat img { display: block; vertical-align: middle; }
-    .brand-logo-compat { display: inline-block; border-radius: 6px; box-shadow: 0 2px 8px rgba(0,0,0,0.1); overflow: hidden; }
+    .brand-logo-compat { display: inline-block; border-radius: 6px; overflow: hidden; }
     .brand-logo-compat img { display: block; vertical-align: middle; }
+    /* Price styling */
+    .price-main {
+      font-size: 26px;
+      font-weight: 900;
+      color: #${accentHex};
+      letter-spacing: -0.5px;
+      line-height: 1;
+      text-shadow: ${priceShadow};
+    }
+    .price-original {
+      font-size: 13px;
+      color: ${isDark ? 'rgba(255,255,255,0.4)' : '#9ca3af'};
+      text-decoration: line-through;
+      font-weight: 500;
+    }
+    /* Discount badge */
+    .discount-badge {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 9px;
+      border-radius: 999px;
+      background: linear-gradient(135deg, #${accentHex}, #${accentHex}cc);
+      color: #fff;
+      font-size: 11px;
+      font-weight: 800;
+      letter-spacing: 0.3px;
+    }
+    /* CTA button */
+    .cta-btn {
+      display: inline-block;
+      padding: 14px 32px;
+      background: linear-gradient(135deg, #${accentHex}, #${accentHex}dd);
+      color: #fff;
+      font-size: 17px;
+      font-weight: 800;
+      border-radius: 14px;
+      text-decoration: none;
+      letter-spacing: 0.2px;
+      box-shadow: 0 4px 16px #${accentHex}55;
+      white-space: nowrap;
+    }
+    /* Product name */
+    .product-name {
+      font-size: 16px;
+      font-weight: 700;
+      line-height: 1.25;
+      letter-spacing: -0.2px;
+      color: ${isDark ? 'rgba(255,255,255,0.92)' : '#111827'};
+    }
+    .product-desc {
+      font-size: 12px;
+      line-height: 1.35;
+      color: ${isDark ? 'rgba(255,255,255,0.5)' : '#6b7280'};
+      font-weight: 400;
+    }
+    .product-code {
+      font-size: 11px;
+      color: ${isDark ? 'rgba(255,255,255,0.35)' : '#9ca3af'};
+      font-weight: 500;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
   </style>
 </head>
 <body>
@@ -160,7 +254,7 @@ export function renderCompanyLogo(data: AdTemplateData): string {
     ? `${inner}<div style="margin-left:auto;">${brandLogosHtml}</div>`
     : inner;
 
-  return `<div class="company-logo" style="display:flex;align-items:center;justify-content:${justify};gap:14px;padding:24px 24px 12px;flex-wrap:wrap;">${fullInner}</div>`;
+  return `<div class="company-logo" style="display:flex;align-items:center;justify-content:${justify};gap:12px;padding:18px 20px 10px;flex-wrap:wrap;">${fullInner}</div>`;
 }
 
 export function renderTitle(data: AdTemplateData): string {
@@ -171,7 +265,7 @@ export function renderTitle(data: AdTemplateData): string {
   const titleText = data.title ? escapeHtml(data.title.slice(0, MAX_TITLE_LENGTH)) : '';
   const content = emoji + titleText;
   if (!content) return '';
-  return `<div style="text-align:center;font-size:${fontSize}px;font-weight:800;color:inherit;padding:8px 24px 20px;line-height:1.2;">${content}</div>`;
+  return `<div style="text-align:center;font-size:${fontSize}px;font-weight:900;color:inherit;padding:6px 20px 16px;line-height:1.15;letter-spacing:-0.5px;">${content}</div>`;
 }
 
 export function renderCta(data: AdTemplateData, accentColor: string): string {
@@ -190,22 +284,22 @@ export function renderCta(data: AdTemplateData, accentColor: string): string {
   const btns = buttons
     .map(
       (text) =>
-        `<a href="#" style="display:inline-block;padding:14px 28px;background:${accentColor};color:#fff;font-size:18px;font-weight:800;border-radius:12px;text-decoration:none;white-space:nowrap;">${escapeHtml(text)}</a>`,
+        `<a href="#" class="cta-btn">${escapeHtml(text)}</a>`,
     )
     .join('');
-  return `<div style="text-align:center;padding:12px 24px 20px;display:flex;flex-wrap:wrap;justify-content:center;gap:8px;">${btns}</div>`;
+  return `<div style="text-align:center;padding:10px 20px 18px;display:flex;flex-wrap:wrap;justify-content:center;gap:8px;">${btns}</div>`;
 }
 
 export function renderBadge(data: AdTemplateData, accentColor: string): string {
   if (!data.badgeText?.trim()) return '';
   const text = data.badgeText.trim().slice(0, MAX_BADGE_LENGTH);
-  return `<div style="text-align:center;padding:8px 24px 0;"><span style="display:inline-block;padding:8px 16px;background:${accentColor};color:#fff;font-size:16px;font-weight:800;border-radius:999px;">${escapeHtml(text)}</span></div>`;
+  return `<div style="text-align:center;padding:6px 20px 0;"><span class="discount-badge" style="font-size:15px;padding:6px 18px;">${escapeHtml(text)}</span></div>`;
 }
 
 export function renderDisclaimer(data: AdTemplateData): string {
   if (!data.disclaimerText?.trim()) return '';
   const text = data.disclaimerText.trim().slice(0, MAX_DISCLAIMER_LENGTH);
-  return `<div style="text-align:center;font-size:12px;color:#6b7280;padding:12px 24px 24px;line-height:1.4;">${escapeHtml(text)}</div>`;
+  return `<div style="text-align:center;font-size:11px;color:#9ca3af;padding:8px 20px 16px;line-height:1.4;font-weight:400;letter-spacing:0.1px;">${escapeHtml(text)}</div>`;
 }
 
 /** Renders optional CTA + badge + disclaimer strip (only when at least one is set). */
@@ -278,9 +372,9 @@ export function renderImage(product: ProductItem, heightPx: number, accentColor 
     const extRef = /^https?:\/\//i.test(uri) ? ' referrerpolicy="no-referrer"' : '';
     // STORY-152: explicit top/left/right/bottom — html2canvas does not parse `inset` shorthand
     return [
-      `<div style="position:relative;width:100%;height:${heightPx}px;border-radius:12px;overflow:hidden;background:#f8fafc;">`,
-      `<img src="${uri}" alt="" aria-hidden="true"${extRef} style="position:absolute;top:0;left:0;right:0;bottom:0;width:100%;height:100%;object-fit:cover;filter:blur(24px) brightness(0.75) saturate(1.2);transform:scale(1.15);" />`,
-      `<img src="${uri}" alt="${alt}"${extRef} style="position:absolute;top:0;left:0;right:0;bottom:0;width:100%;height:100%;object-fit:contain;" />`,
+      `<div style="position:relative;width:100%;height:${heightPx}px;border-radius:12px;overflow:hidden;background:#f1f5f9;">`,
+      `<img src="${uri}" alt="" aria-hidden="true"${extRef} style="position:absolute;top:0;left:0;right:0;bottom:0;width:100%;height:100%;object-fit:cover;filter:blur(28px) brightness(0.65) saturate(1.3);transform:scale(1.2);" />`,
+      `<img src="${uri}" alt="${alt}"${extRef} style="position:absolute;top:0;left:0;right:0;bottom:0;width:100%;height:100%;object-fit:contain;image-rendering:-webkit-optimize-contrast;" />`,
       `</div>`,
     ].join('');
   }
@@ -299,7 +393,7 @@ export function renderImage(product: ProductItem, heightPx: number, accentColor 
 
 export function renderCode(product: ProductItem): string {
   if (!product.code) return '';
-  return `<div style="font-size:12px;color:#6b7280;margin-top:8px;">${escapeHtml(product.code)}</div>`;
+  return `<div class="product-code" style="margin-top:6px;">${escapeHtml(product.code)}</div>`;
 }
 
 export function getDisplayPrice(product: ProductItem): string {

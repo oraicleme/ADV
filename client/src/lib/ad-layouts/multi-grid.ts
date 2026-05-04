@@ -22,32 +22,32 @@ function getGridColumns(count: number): number {
 
 type ShowFields = ProductBlockOptions['showFields'];
 
-function renderCard(product: ProductItem, imageHeight: number, showFields: ShowFields, accentColor: string): string {
+function renderCard(product: ProductItem, imageHeight: number, showFields: ShowFields, _accentColor: string): string {
   const price = showFields.price ? getDisplayPrice(product) : '';
   const priceHtml = price
-    ? `<div style="font-size:26px;font-weight:800;color:${accentColor};margin-top:8px;">${price}</div>`
+    ? `<div class="price-main" style="margin-top:8px;">${price}</div>`
     : '';
   const originalPriceHtml =
     showFields.originalPrice && product.originalPrice?.trim()
-      ? `<div style="font-size:14px;color:#9ca3af;text-decoration:line-through;margin-top:4px;">${escapeHtml(product.originalPrice!)}${product.currency ? ` ${escapeHtml(product.currency)}` : ''}</div>`
+      ? `<div class="price-original" style="margin-top:3px;">${escapeHtml(product.originalPrice!)}${product.currency ? ` ${escapeHtml(product.currency)}` : ''}</div>`
       : '';
   const discountBadgeHtml =
     showFields.discountBadge && typeof product.discountPercent === 'number'
-      ? `<div style="display:inline-flex;margin-top:4px;padding:3px 8px;border-radius:999px;background:${accentColor};color:#fff;font-size:12px;font-weight:800;">-${Math.abs(product.discountPercent)}%</div>`
+      ? `<div style="margin-top:5px;"><span class="discount-badge">-${Math.abs(product.discountPercent)}%</span></div>`
       : '';
 
   return [
-    '<div style="background:#fff;color:#111827;border-radius:14px;padding:14px;box-shadow:0 2px 8px rgba(0,0,0,0.06);">',
-    showFields.image ? renderImage(product, imageHeight, accentColor) : '',
+    '<div class="ad-card" style="padding:12px;">',
+    showFields.image ? renderImage(product, imageHeight, _accentColor) : '',
     showFields.brandLogo
-      ? `<div style="display:flex;align-items:center;gap:8px;min-height:20px;margin-top:10px;">${renderBrandLogo(product)}</div>`
+      ? `<div style="display:flex;align-items:center;gap:6px;min-height:18px;margin-top:8px;">${renderBrandLogo(product)}</div>`
       : '',
     showFields.code ? renderCode(product) : '',
     showFields.name
-      ? `<div style="font-size:18px;font-weight:700;line-height:1.25;margin-top:6px;">${escapeHtml(product.name)}</div>`
+      ? `<div class="product-name" style="margin-top:5px;">${escapeHtml(product.name)}</div>`
       : '',
     showFields.description && product.description
-      ? `<div style="font-size:13px;color:#6b7280;line-height:1.3;margin-top:4px;">${escapeHtml(product.description)}</div>`
+      ? `<div class="product-desc" style="margin-top:3px;">${escapeHtml(product.description)}</div>`
       : '',
     originalPriceHtml,
     priceHtml,
@@ -75,9 +75,9 @@ export const renderMultiGrid: LayoutRenderer = (data, format, style) => {
     originalPrice: true, price: true, discountBadge: true, brandLogo: true,
   };
   const cards = allProducts.map((p) => renderCard(p, imageHeight, showFields, style.accentColor)).join('');
-  const gap = format.width >= 1200 ? 18 : 14;
+  const gap = format.width >= 1200 ? 16 : 12;
 
-  const productsHtml = `<div style="padding:0 24px 28px;display:grid;grid-template-columns:repeat(${columns}, minmax(0, 1fr));gap:${gap}px;">${cards}</div>`;
+  const productsHtml = `<div style="padding:0 16px 20px;display:grid;grid-template-columns:repeat(${columns}, minmax(0, 1fr));gap:${gap}px;">${cards}</div>`;
   const content = [
     renderCompanyLogo(data),
     renderOrderedElements(data, style.accentColor, productsHtml),

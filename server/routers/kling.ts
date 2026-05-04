@@ -1,5 +1,14 @@
 /**
- * Kling generative video (STORY-180) — BFF: credentials and vendor calls stay on the server.
+ * Kling generative media (STORY-180 + image-to-video + image generation).
+ * BFF: credentials and vendor calls stay on the server.
+ *
+ * Endpoints:
+ *   - health: check if Kling is configured
+ *   - submitVideoJob: text-to-video (legacy)
+ *   - submitImage2Video: image-to-video (opt-in, user clicks "Animate this ad")
+ *   - submitImageGen: AI image generation (backgrounds, scenes)
+ *   - getVideoJobStatus: poll text-to-video or image-to-video task
+ *   - getImageGenStatus: poll image generation task
  */
 import { z } from 'zod';
 import { TRPCError } from '@trpc/server';
@@ -12,6 +21,12 @@ import {
   klingGetTextToVideoTask,
   klingSubmitTextToVideo,
 } from '../lib/kling-client';
+import {
+  klingSubmitImage2Video,
+  klingGetImage2VideoTask,
+  klingSubmitImageGeneration,
+  klingGetImageGenTask,
+} from '../lib/kling-media';
 
 function trpcFromKlingError(err: unknown, code: 'BAD_REQUEST' | 'INTERNAL_SERVER_ERROR' = 'INTERNAL_SERVER_ERROR'): never {
   if (err && typeof err === 'object' && 'status' in err) {
@@ -26,6 +41,8 @@ function trpcFromKlingError(err: unknown, code: 'BAD_REQUEST' | 'INTERNAL_SERVER
   const msg = err instanceof Error ? err.message : 'Kling request failed';
   throw new TRPCError({ code, message: msg });
 }
+
+/* ── Input schemas ───────────────────────────────────────────────────── */
 
 const submitInput = z.object({
   headline: z.string().max(500).default(''),
@@ -47,6 +64,40 @@ const submitInput = z.object({
   sound: z.enum(['on', 'off']).optional(),
 });
 
+const submitImage2VideoInput = z.object({
+  /** Base64 (raw, no data: prefix) or public URL of the rendered ad image */
+  image: z.string().min(1).max(20_000_000), // Base64 can be large
+  /** Optional end-frame image */
+  imageTail: z.string().max(20_000_000).optional(),
+  /** Animation prompt */
+  prompt: z.string().max(2500).optional(),
+  /** Negative prompt */
+  negativePrompt: z.string().max(2500).optional(),
+  /** Duration: 5 or 10 seconds */
+  duration: z.enum(['5', '10']).optional(),
+  /** Mode: std (cheaper) or pro (higher quality) */
+  mode: z.enum(['std', 'pro']).optional(),
+  /** Sound generation */
+  sound: z.enum(['on', 'off']).optional(),
+});
+
+const submitImageGenInput = z.object({
+  /** Text prompt describing the desired image */
+  prompt: z.string().min(1).max(2500),
+  /** Negative prompt */
+  negativePrompt: z.string().max(2500).optional(),
+  /** Reference image for image-to-image (Base64 or URL) */
+  referenceImage: z.string().max(20_000_000).optional(),
+  /** Number of images to generate (1-4 for cost control) */
+  count: z.number().int().min(1).max(4).optional(),
+  /** Aspect ratio */
+  aspectRatio: z.enum(['16:9', '9:16', '1:1', '4:3', '3:4', '3:2', '2:3']).optional(),
+  /** Resolution */
+  resolution: z.enum(['1k', '2k']).optional(),
+});
+
+/* ── Router ──────────────────────────────────────────────────────────── */
+
 export const klingRouter = router({
   health: protectedProcedure.query(() => {
     const configured = isKlingConfigured();
@@ -61,6 +112,8 @@ export const klingRouter = router({
       baseUrlHost,
     } as const;
   }),
+
+  /* ── Text-to-Video (legacy) ──────────────────────────────────────── */
 
   submitVideoJob: protectedProcedure.input(submitInput).mutation(async ({ input, ctx }) => {
     if (!isKlingConfigured()) {
@@ -97,13 +150,83 @@ export const klingRouter = router({
       return {
         taskId,
         metadata: built.metadata,
-        /** Opaque vendor payload shape — for debugging only; do not rely on in UI. */
         vendor: process.env.NODE_ENV === 'development' ? raw : undefined,
       };
     } catch (e) {
       trpcFromKlingError(e);
     }
   }),
+
+  /* ── Image-to-Video (opt-in: "Animate this ad") ─────────────────── */
+
+  submitImage2Video: protectedProcedure.input(submitImage2VideoInput).mutation(async ({ input, ctx }) => {
+    if (!isKlingConfigured()) {
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'Kling API is not configured on the server (KLING_ACCESS_KEY / KLING_SECRET_KEY).',
+      });
+    }
+
+    try {
+      const { taskId, raw } = await klingSubmitImage2Video({
+        image: input.image,
+        imageTail: input.imageTail,
+        prompt: input.prompt,
+        negativePrompt: input.negativePrompt,
+        duration: input.duration as '5' | '10' | undefined,
+        mode: input.mode,
+        sound: input.sound,
+      });
+
+      const ref = hashKlingTaskRef(taskId);
+      console.warn(
+        `[kling] submitImage2Video user=${ctx.user.id} taskRef=${ref} mode=${input.mode ?? 'std'} duration=${input.duration ?? '5'}`,
+      );
+
+      return {
+        taskId,
+        vendor: process.env.NODE_ENV === 'development' ? raw : undefined,
+      };
+    } catch (e) {
+      trpcFromKlingError(e);
+    }
+  }),
+
+  /* ── Image Generation (AI backgrounds/scenes) ───────────────────── */
+
+  submitImageGen: protectedProcedure.input(submitImageGenInput).mutation(async ({ input, ctx }) => {
+    if (!isKlingConfigured()) {
+      throw new TRPCError({
+        code: 'PRECONDITION_FAILED',
+        message: 'Kling API is not configured on the server (KLING_ACCESS_KEY / KLING_SECRET_KEY).',
+      });
+    }
+
+    try {
+      const { taskId, raw } = await klingSubmitImageGeneration({
+        prompt: input.prompt,
+        negativePrompt: input.negativePrompt,
+        referenceImage: input.referenceImage,
+        count: input.count,
+        aspectRatio: input.aspectRatio,
+        resolution: input.resolution,
+      });
+
+      const ref = hashKlingTaskRef(taskId);
+      console.warn(
+        `[kling] submitImageGen user=${ctx.user.id} taskRef=${ref} count=${input.count ?? 1}`,
+      );
+
+      return {
+        taskId,
+        vendor: process.env.NODE_ENV === 'development' ? raw : undefined,
+      };
+    } catch (e) {
+      trpcFromKlingError(e);
+    }
+  }),
+
+  /* ── Status polling (works for both video types) ─────────────────── */
 
   getVideoJobStatus: protectedProcedure
     .input(z.object({ taskId: z.string().min(1).max(512) }))
@@ -119,6 +242,64 @@ export const klingRouter = router({
         const ref = hashKlingTaskRef(input.taskId);
         if (status.state === 'failed') {
           console.warn(`[kling] task failed user=${ctx.user.id} taskRef=${ref} rawStatus=${status.rawStatus}`);
+        }
+        return {
+          state: status.state,
+          rawStatus: status.rawStatus,
+          resultUrls: status.resultUrls,
+          errorMessage: status.errorMessage,
+          terminal: status.state === 'succeeded' || status.state === 'failed',
+          vendor: process.env.NODE_ENV === 'development' ? status.raw : undefined,
+        };
+      } catch (e) {
+        trpcFromKlingError(e);
+      }
+    }),
+
+  /** Poll image-to-video task status */
+  getImage2VideoStatus: protectedProcedure
+    .input(z.object({ taskId: z.string().min(1).max(512) }))
+    .query(async ({ input, ctx }) => {
+      if (!isKlingConfigured()) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'Kling API is not configured on the server.',
+        });
+      }
+      try {
+        const status = await klingGetImage2VideoTask(input.taskId);
+        const ref = hashKlingTaskRef(input.taskId);
+        if (status.state === 'failed') {
+          console.warn(`[kling] img2video failed user=${ctx.user.id} taskRef=${ref} rawStatus=${status.rawStatus}`);
+        }
+        return {
+          state: status.state,
+          rawStatus: status.rawStatus,
+          resultUrls: status.resultUrls,
+          errorMessage: status.errorMessage,
+          terminal: status.state === 'succeeded' || status.state === 'failed',
+          vendor: process.env.NODE_ENV === 'development' ? status.raw : undefined,
+        };
+      } catch (e) {
+        trpcFromKlingError(e);
+      }
+    }),
+
+  /** Poll image generation task status */
+  getImageGenStatus: protectedProcedure
+    .input(z.object({ taskId: z.string().min(1).max(512) }))
+    .query(async ({ input, ctx }) => {
+      if (!isKlingConfigured()) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'Kling API is not configured on the server.',
+        });
+      }
+      try {
+        const status = await klingGetImageGenTask(input.taskId);
+        const ref = hashKlingTaskRef(input.taskId);
+        if (status.state === 'failed') {
+          console.warn(`[kling] imageGen failed user=${ctx.user.id} taskRef=${ref} rawStatus=${status.rawStatus}`);
         }
         return {
           state: status.state,

@@ -12,7 +12,8 @@ import { comprehensiveSearch } from "../db-rag-search";
 import { optimizeProductCatalog, formatOptimizedCatalogForPrompt, generateFallbackSuggestion } from "../lib/product-optimizer";
 import { selectProductsForAgent } from "../lib/select-products-for-agent";
 import { getContextSlice, type AgentName } from "../lib/agent-context-slices";
-import { autoSpawnKlingVideo } from "../lib/kling-auto-spawn";
+// Auto-spawn disabled — see kling.submitImage2Video for opt-in image-to-video
+// import { autoSpawnKlingVideo } from "../lib/kling-auto-spawn";
 
 // Schema for canvas state (matches client-side AdCanvasState)
 const CanvasStateSchema = z.object({
@@ -617,8 +618,8 @@ export const agentsRouter = router({
     }),
 
   /**
-   * Auto-spawn a Kling video ad when user selects a concept.
-   * Fire-and-forget: returns taskId immediately, client polls for status.
+   * DEPRECATED: Auto-spawn removed. Use kling.submitImage2Video (opt-in) instead.
+   * Kept as no-op to avoid breaking clients that still call this endpoint.
    */
   spawnVideoAd: protectedProcedure
     .input(
@@ -636,11 +637,12 @@ export const agentsRouter = router({
         locale: z.string().optional(),
       })
     )
-    .mutation(async ({ input, ctx }) => {
-      const result = await autoSpawnKlingVideo({
-        ...input,
-        userId: ctx.user?.id,
-      });
-      return result;
+    .mutation(async () => {
+      // Auto-spawn disabled — video generation is now opt-in via kling.submitImage2Video
+      return {
+        spawned: false,
+        taskId: null,
+        reason: 'Auto-spawn disabled. Use the "Animate this ad" button in the Export panel instead.',
+      };
     }),
 });

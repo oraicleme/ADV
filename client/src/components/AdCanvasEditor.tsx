@@ -1447,6 +1447,16 @@ export default function AdCanvasEditor({
                   formatWidth: format.width,
                   formatHeight: format.height,
                 }}
+                klingAnimate={htmlPerPage && htmlPerPage.length > 0 ? {
+                  html: htmlPerPage[0],
+                  width: format.width,
+                  height: format.height,
+                } : undefined}
+                klingImageGen={{
+                  aspectRatio: format.width === format.height ? '1:1' : format.width > format.height ? '16:9' : '9:16',
+                  productNames: products.slice(0, 5).map((p) => p.name),
+                  category: products[0]?.category,
+                }}
               />
             </div>
           )}

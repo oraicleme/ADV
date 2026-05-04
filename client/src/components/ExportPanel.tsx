@@ -8,6 +8,8 @@ import { Download, FileImage, FileText, Loader2, AlertCircle } from 'lucide-reac
 import { exportAdAsPNG, exportAdAsJPEG, exportAdAsHTML } from '../lib/export-utils';
 import { exportAdAsImage, downloadBlob } from '../lib/export-image';
 import KlingCreativeSection, { type KlingCanvasContext } from './KlingCreativeSection';
+import KlingAnimateSection, { type KlingAnimateContext } from './KlingAnimateSection';
+import KlingImageGenSection, { type KlingImageGenContext } from './KlingImageGenSection';
 
 interface ExportPanelProps {
   canvasElementId: string;
@@ -19,6 +21,10 @@ interface ExportPanelProps {
   exportFormat?: { width: number; height: number };
   /** STORY-180: Canvas snapshot for Kling (optional; server builds prompt). */
   klingCanvas?: KlingCanvasContext;
+  /** Opt-in image-to-video: animate the rendered ad */
+  klingAnimate?: KlingAnimateContext;
+  /** Opt-in AI image generation for backgrounds */
+  klingImageGen?: KlingImageGenContext;
 }
 
 export default function ExportPanel({
@@ -28,6 +34,8 @@ export default function ExportPanel({
   htmlPerPage,
   exportFormat,
   klingCanvas,
+  klingAnimate,
+  klingImageGen,
 }: ExportPanelProps) {
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -184,6 +192,8 @@ export default function ExportPanel({
       </p>
 
       {klingCanvas ? <KlingCreativeSection context={klingCanvas} /> : null}
+      {klingAnimate ? <KlingAnimateSection context={klingAnimate} /> : null}
+      {klingImageGen ? <KlingImageGenSection context={klingImageGen} /> : null}
     </div>
   );
 }
