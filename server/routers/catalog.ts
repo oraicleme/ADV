@@ -24,6 +24,7 @@ import {
 } from '../lib/meilisearch-service';
 import { testExternalCatalogConnection } from '../lib/external-catalog-connection';
 import { syncCatalogFromApi } from '../lib/catalog-api-sync';
+import { getCatalogHealth, syncCatalog, cacheExcelProducts, getSyncState } from '../lib/catalog-health';
 import { runExpandSearchQueryStage1 } from '../lib/expand-search-query-stage1';
 
 const IONET_DEBUG_DIR = join(process.cwd(), '.tmp', 'ionet-selectProducts');
@@ -232,6 +233,8 @@ export const catalogRouter = router({
         category: p.category ?? '',
       }));
       await indexCatalog(docs);
+      // Cache for auto-resync recovery if Meilisearch is wiped
+      cacheExcelProducts(docs);
       return { success: true, indexed: docs.length };
     }),
 
@@ -369,6 +372,27 @@ Reply with ONLY valid JSON: {"nameContains":"...","category":"..."}`;
     } catch {
       return { documentCount: 0 };
     }
+  }),
+  /**
+   * Catalog health check — returns full pipeline status.
+   * Used by the client to show sync state and trigger manual resync.
+   */
+  getCatalogHealth: publicProcedure.query(async () => {
+    return await getCatalogHealth();
+  }),
+  /**
+   * Manual catalog resync — triggers re-fetch from active data source
+   * and re-indexes into Meilisearch. Self-healing on demand.
+   */
+  resyncCatalog: publicProcedure.mutation(async () => {
+    const result = await syncCatalog(true);
+    return result;
+  }),
+  /**
+   * Get current sync state (non-blocking, no Meilisearch call).
+   */
+  getSyncState: publicProcedure.query(async () => {
+    return getSyncState();
   }),
 
   /**
@@ -793,7 +817,7 @@ No other format. The JSON may appear after your reasoning text.`;
   /**
    * Get catalog products
    */
-  getCatalogProducts: protectedProcedure
+  getCatalogProducts: publicProcedure
     .input(
       z.object({
         configId: z.string().optional(),
@@ -804,12 +828,53 @@ No other format. The JSON may appear after your reasoning text.`;
         offset: z.number().default(0),
       }),
     )
-    .query(async ({ ctx, input }) => {
-      // TODO: Query from database
+    .query(async ({ input }) => {
+      // Try Meilisearch first, fall back to cached products
+      const { getCachedProducts } = await import('../lib/catalog-health');
+      const cached = getCachedProducts();
+
+      if (isMeilisearchConfigured() && input.search) {
+        try {
+          const hits = await searchCatalog(
+            input.search,
+            { category: input.category, brand: input.brand },
+            input.limit,
+          );
+          return {
+            products: hits.map(h => {
+              const product = cached[h.index];
+              return product ? { ...product, score: h.score } : { id: h.index, name: 'Unknown', code: '', brand: '', category: '', score: h.score };
+            }),
+            total: hits.length,
+            hasMore: false,
+          };
+        } catch {
+          // Fall through to cache
+        }
+      }
+
+      // Graceful degradation: serve from in-memory cache
+      let filtered = cached;
+      if (input.search) {
+        const q = input.search.toLowerCase();
+        filtered = filtered.filter(p =>
+          p.name.toLowerCase().includes(q) ||
+          p.code.toLowerCase().includes(q) ||
+          p.brand.toLowerCase().includes(q)
+        );
+      }
+      if (input.category) {
+        filtered = filtered.filter(p => p.category === input.category);
+      }
+      if (input.brand) {
+        filtered = filtered.filter(p => p.brand === input.brand);
+      }
+      const total = filtered.length;
+      const page = filtered.slice(input.offset, input.offset + input.limit);
       return {
-        products: [],
-        total: 0,
-        hasMore: false,
+        products: page,
+        total,
+        hasMore: input.offset + input.limit < total,
       };
     }),
 

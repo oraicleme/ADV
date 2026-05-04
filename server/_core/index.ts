@@ -8,6 +8,7 @@ import { appRouter } from "../routers";
 import { createContext } from "./context";
 import { serveStatic, setupVite } from "./vite";
 import { prewarmMobilelandCache } from "../lib/mobileland-api";
+import { initCatalogHealth } from "../lib/catalog-health";
 
 function isPortAvailable(port: number): Promise<boolean> {
   return new Promise(resolve => {
@@ -65,6 +66,12 @@ async function startServer() {
     // Start warming the Mobileland image map cache in the background.
     // This way the first user request hits an already-populated cache.
     prewarmMobilelandCache();
+
+    // Initialize self-healing catalog pipeline.
+    // Checks Meilisearch health and auto-resyncs from data source if empty.
+    initCatalogHealth().catch((err) =>
+      console.warn('[startup] Catalog health init failed:', err)
+    );
   });
 }
 
