@@ -1614,9 +1614,25 @@ export default function AgentChat({ agent }: { agent: AgentConfig }) {
           collectResolvedIndicesFromCatalogActions(resolvedActions) ?? new Set();
       }
 
+      // STORY-210: Check if any catalog_filter action failed (has _debugReason).
+      // If so, append a corrective follow-up so the user isn't misled by the agent's
+      // tentative message that preceded the search.
+      const failedFilters = resolvedActions.filter(
+        (a) =>
+          a.type === 'catalog_filter' &&
+          !!(a.payload as Record<string, unknown>)?._debugReason,
+      );
+      let correctedMessage = message || 'Done!';
+      if (failedFilters.length > 0) {
+        const reasons = failedFilters
+          .map((a) => (a.payload as Record<string, unknown>)._debugReason as string)
+          .join('; ');
+        correctedMessage = `${correctedMessage}\n\n⚠️ ${reasons}\nPoku\u0161ajte s drugim pojmom za pretragu, ili ru\u010dno odaberite proizvode iz kataloga.`;
+      }
+
       const agentMsg: ConversationMessage = {
         role: 'assistant',
-        content: message || 'Done!',
+        content: correctedMessage,
         actions: resolvedActions,
         timestamp: Date.now(),
       };

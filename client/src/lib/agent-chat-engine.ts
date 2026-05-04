@@ -239,10 +239,19 @@ PRODUCT CATALOG INTELLIGENCE (when catalogSummary is present in the canvas state
 
   Rules:
   - query: Copy or paraphrase what the user asked for. Do NOT translate to catalog terms — the system does that. E.g. "USB-C car chargers", "sve Hoco futrole za iPhone", "Denmen držači za kola".
+  - IMPORTANT — MULTI-VARIANT QUERY: Product catalogs use inconsistent naming (e.g. "kabal" vs "kabel" vs "cable" for the same thing). To maximize recall, include ALL common spelling variants and synonyms in your query string, separated by spaces. Examples:
+      · User asks for USB cables → query: "USB kabal kabel cable data"
+      · User asks for chargers → query: "punjač punjac charger"
+      · User asks for phone cases → query: "futrola maska case cover"
+      · User asks for headphones → query: "slušalice slusalice earphones handsfree"
+      · User asks for screen protectors → query: "zaštita zastita zastitno tempered glass screen protector zaštite za ekran"
+      · User asks for adapters → query: "adapter adaptor"
+      · User asks for holders → query: "držač drzac holder mount"
+    This ensures Meilisearch BM25 matches products regardless of which spelling variant the catalog uses.
   - hintCategories: ONLY use names that appear VERBATIM in catalogSummary.categories[].name above. Copy-paste exactly — do NOT invent names. If you are unsure or no category clearly matches, leave []. The system has a keyword fallback that works without hints.
   - maxSelect: 0 = select and show ALL matching products (default; use almost always). Only use maxSelect=N when the user explicitly asks for a limited number (e.g. "samo 4", "top 6", "odaberi 8 za reklamu").
   - deselectOthers: true (replace previous selection).
-  - In "message" state what you searched for and approximately how many products you expect.
+  - CRITICAL — TENTATIVE LANGUAGE: Your catalog_filter is resolved AFTER your message is shown. You do NOT know yet whether the search will succeed. NEVER say "Odabrao sam", "I've selected", "Pripremio sam" or any past-tense success claim about product selection. Instead use PRESENT/FUTURE tense: "Tražim...", "Searching for...", "Pokušavam pronaći...", "I'll find...". If the search fails, the UI will show a note — your message must not contradict it.
   - After catalog_filter you MAY add canvas changes (layout, columns, etc.).
 
   PRODUCT SELECTION PANEL (bottom "Products" tab — when users ask about confusing numbers or "loaded all products"):
@@ -256,16 +265,21 @@ PRODUCT CATALOG INTELLIGENCE (when catalogSummary is present in the canvas state
 
   Examples (hintCategories shown as placeholders — always use EXACT names from the list above):
   User: "daj mi USB-C punjače za auto"
-    → { "query": "USB-C punjači za auto", "hintCategories": [], "maxSelect": 0, "deselectOthers": true }
-    (show all matching USB-C car chargers; leave [] unless you see a charger/auto category verbatim in the list)
+    → { "query": "USB-C punjač punjac charger auto", "hintCategories": ["Auto Moto"], "maxSelect": 0, "deselectOthers": true }
+    message: "Tražim USB-C punjače za auto u katalogu..."
+  User: "daj mi USB kablove da ih dam na rasprodaju"
+    → { "query": "USB kabal kabel cable data", "hintCategories": [], "maxSelect": 0, "deselectOthers": true }
+    message: "Tražim sve USB kablove u katalogu — pripremam rasprodajnu reklamu..."
   User: "sve Hoco futrole"
-    → { "query": "sve Hoco futrole", "hintCategories": ["<case name if it exists verbatim>"], "maxSelect": 0, "deselectOthers": true }
+    → { "query": "Hoco futrola maska case", "hintCategories": ["Futrola za mob. tel."], "maxSelect": 0, "deselectOthers": true }
+    message: "Tražim sve Hoco futrole..."
   User: "sve Baseus proizvode"
-    → { "query": "sve Baseus proizvode", "hintCategories": [], "maxSelect": 0, "deselectOthers": true }
+    → { "query": "Baseus", "hintCategories": [], "maxSelect": 0, "deselectOthers": true }
+    message: "Tražim sve Baseus proizvode u katalogu..."
   User: "odaberi sve"
     → { "query": "svi proizvodi", "hintCategories": [], "maxSelect": 0, "deselectOthers": true }
   User: "samo 4 proizvoda za ovu reklamu"
-    → { "query": "<user intent>", "hintCategories": [], "maxSelect": 4, "deselectOthers": true }
+    → { "query": "<user intent with synonym variants>", "hintCategories": [], "maxSelect": 4, "deselectOthers": true }
 
   If no catalogSummary in state: do NOT use catalog_filter. Say that products must be loaded first.
 

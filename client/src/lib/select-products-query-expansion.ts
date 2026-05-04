@@ -94,11 +94,73 @@ const STOP = new Set([
   'pre',
 ]);
 
-const MAX_QUERIES = 5;
+const MAX_QUERIES = 8;
 
 /**
- * Build alternate search strings: original, ASCII-folded (if different), and 1–2 shorter
- * token-group queries from the longest remaining tokens (helps “gume + trotinet” paths).
+ * STORY-210: Retail domain synonym groups for Balkan market.
+ * When a query contains any term from a group, additional sub-queries are generated
+ * with the synonym variants so Meilisearch BM25 can match regardless of catalog spelling.
+ * Each group is a set of ASCII-folded terms that mean the same thing.
+ */
+const RETAIL_SYNONYM_GROUPS: string[][] = [
+  // cables
+  ['kabal', 'kabel', 'cable', 'kab'],
+  // chargers
+  ['punjac', 'charger', 'punjach'],
+  // phone cases
+  ['futrola', 'maska', 'case', 'cover', 'oklop', 'armor'],
+  // headphones
+  ['slusalice', 'earphones', 'headphones', 'handsfree', 'earbuds'],
+  // screen protectors
+  ['zastita', 'zastitno', 'tempered', 'protector', 'zastitna'],
+  // batteries
+  ['baterija', 'battery', 'akumulator'],
+  // holders / mounts
+  ['drzac', 'holder', 'mount', 'stalak', 'stand'],
+  // adapters
+  ['adapter', 'adaptor', 'pretvarac', 'konverter', 'converter'],
+  // speakers
+  ['zvucnik', 'speaker', 'bluetooth'],
+  // power banks
+  ['powerbank', 'power bank', 'eksterna baterija', 'prijenosna baterija'],
+  // keyboards / mice
+  ['tastatura', 'keyboard', 'tipkovnica'],
+  ['mis', 'mouse', 'mish'],
+  // tablets
+  ['tablet', 'tab'],
+  // watches
+  ['sat', 'watch', 'smartwatch', 'pametni sat'],
+];
+
+/**
+ * Given a folded query, find all synonym groups that match any token,
+ * and return the additional variant terms not already in the query.
+ */
+function getSynonymExpansions(foldedQuery: string): string[] {
+  const tokens = foldedQuery
+    .replace(/[^a-z0-9]/g, ' ')
+    .split(/\s+/)
+    .filter((t) => t.length >= 2);
+  const expansions: string[] = [];
+  for (const group of RETAIL_SYNONYM_GROUPS) {
+    const matched = group.some((syn) =>
+      tokens.some((t) => t === syn || t.includes(syn) || syn.includes(t)),
+    );
+    if (matched) {
+      for (const syn of group) {
+        if (!tokens.includes(syn) && !foldedQuery.includes(syn)) {
+          expansions.push(syn);
+        }
+      }
+    }
+  }
+  return expansions;
+}
+
+/**
+ * Build alternate search strings: original, ASCII-folded (if different), synonym-expanded,
+ * and 1–2 shorter token-group queries from the longest remaining tokens.
+ * STORY-210: Now includes retail domain synonym expansion for Balkan market.
  */
 export function buildExpandedSearchQueries(raw: string): string[] {
   const q = normalizeSearchQueryForPipeline(raw);
@@ -108,6 +170,24 @@ export function buildExpandedSearchQueries(raw: string): string[] {
   const lower = q.toLowerCase();
   const folded = stripDiacritics(lower);
   if (folded !== lower) out.push(folded);
+
+  // STORY-210: Synonym expansion — generate additional sub-queries with variant terms
+  const synonyms = getSynonymExpansions(folded);
+  if (synonyms.length > 0) {
+    // Add the original query augmented with all synonyms (single broad query)
+    out.push(`${folded} ${synonyms.join(' ')}`);
+    // Also add individual synonym terms paired with non-synonym tokens for precision
+    const coreTokens = folded
+      .replace(/[^a-z0-9]/g, ' ')
+      .split(/\s+/)
+      .filter((t) => t.length >= 3 && !STOP.has(t))
+      .filter((t) => !RETAIL_SYNONYM_GROUPS.some((g) => g.includes(t)));
+    if (coreTokens.length > 0) {
+      for (const syn of synonyms.slice(0, 3)) {
+        out.push(`${coreTokens.join(' ')} ${syn}`);
+      }
+    }
+  }
 
   const tokens = folded
     .replace(/[^a-z0-9]/g, ' ')

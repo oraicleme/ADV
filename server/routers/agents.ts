@@ -11,6 +11,8 @@ import { buildRagContext, formatRagContextForPrompt, storeSuggestion } from "../
 import { comprehensiveSearch } from "../db-rag-search";
 import { optimizeProductCatalog, formatOptimizedCatalogForPrompt, generateFallbackSuggestion } from "../lib/product-optimizer";
 import { selectProductsForAgent } from "../lib/select-products-for-agent";
+import { getContextSlice, type AgentName } from "../lib/agent-context-slices";
+import { autoSpawnKlingVideo } from "../lib/kling-auto-spawn";
 
 // Schema for canvas state (matches client-side AdCanvasState)
 const CanvasStateSchema = z.object({
@@ -211,12 +213,15 @@ async function callAgent(
       }
     }
 
+    // Context Isolation: each agent receives only the slice it needs
+    const contextSlice = getContextSlice(agentName as AgentName, canvasState);
+
     const userContent = `User Request: "${userMessage}"
 
-Current Canvas State:
-${JSON.stringify(canvasState, null, 2)}${catalogInfo}
+Relevant Canvas Context:
+${JSON.stringify(contextSlice, null, 2)}${catalogInfo}
 
-Analyze this request and canvas state. Provide ONE specific, actionable suggestion in JSON format.`;
+Analyze this request and canvas context. Provide ONE specific, actionable suggestion in JSON format.`;
 
     const messages: Message[] = [
       { role: "system", content: systemPrompt },
@@ -358,7 +363,131 @@ function routeRequest(userMessage: string): (keyof typeof AGENT_PROMPTS)[] {
   return order;
 }
 
+/**
+ * Multi-Variant Ad Concept Generation
+ * Returns 3 distinct ad concepts (e.g., "Aggressive Sale", "Clean Modern", "Brand Focused")
+ */
+const AD_CONCEPT_STYLES = [
+  {
+    id: 'aggressive-sale',
+    name: 'Aggressive Sale',
+    directive: 'Bold, urgent, high-contrast design. Use large discount percentages, red/yellow urgency colors, countdown-style language, ALL CAPS headlines, multiple CTAs. Think Black Friday energy.',
+  },
+  {
+    id: 'clean-modern',
+    name: 'Clean Modern',
+    directive: 'Minimalist, premium feel. Generous whitespace, subtle accent colors, elegant typography, single clear CTA. Think Apple Store aesthetic.',
+  },
+  {
+    id: 'brand-focused',
+    name: 'Brand Focused',
+    directive: 'Brand-first approach. Prominent logo placement, brand colors dominant, product storytelling over price, trust badges, lifestyle messaging. Think brand awareness campaign.',
+  },
+] as const;
+
+const AdConceptSchema = z.object({
+  conceptId: z.string(),
+  conceptName: z.string(),
+  headline: z.string(),
+  badgeText: z.string(),
+  ctaButtons: z.array(z.string()),
+  accentColor: z.string(),
+  backgroundColor: z.string(),
+  layout: z.string(),
+  reasoning: z.string(),
+});
+
+async function generateSingleConcept(
+  style: typeof AD_CONCEPT_STYLES[number],
+  userMessage: string,
+  canvasState: z.infer<typeof CanvasStateSchema>,
+): Promise<z.infer<typeof AdConceptSchema> | null> {
+  const systemPrompt = `You are a Senior Ad Creative Director. Generate a COMPLETE ad concept in the "${style.name}" style.
+
+Style directive: ${style.directive}
+
+Return a JSON object with:
+{
+  "conceptId": "${style.id}",
+  "conceptName": "${style.name}",
+  "headline": "The main headline text (max 60 chars)",
+  "badgeText": "Badge/label text (max 30 chars, e.g. RASPRODAJA, -50%, NEW)",
+  "ctaButtons": ["Primary CTA", "Secondary CTA"],
+  "accentColor": "#hex color for accent",
+  "backgroundColor": "#hex color for background",
+  "layout": "grid|hero|minimal|stack",
+  "reasoning": "1-2 sentences why this concept works for the request"
+}
+
+RULES:
+- Match the user's language (if Croatian/Serbian, write in that language)
+- Make each concept DISTINCT from the others — different colors, different tone, different layout
+- Headline must be compelling and relevant to the products/request
+- Colors must have sufficient contrast for readability`;
+
+  const contextSlice = getContextSlice('copy-agent' as AgentName, canvasState);
+  const userContent = `User Request: "${userMessage}"\n\nCurrent canvas context:\n${JSON.stringify(contextSlice, null, 2)}`;
+
+  try {
+    const response = await invokeLLM({
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userContent },
+      ],
+      max_tokens: 800,
+      response_format: { type: 'json_object' },
+    });
+
+    const content = response.choices[0]?.message?.content;
+    if (!content) return null;
+
+    const parsed = JSON.parse(content);
+    return {
+      conceptId: style.id,
+      conceptName: style.name,
+      headline: parsed.headline || '',
+      badgeText: parsed.badgeText || '',
+      ctaButtons: parsed.ctaButtons || [],
+      accentColor: parsed.accentColor || '#FF0000',
+      backgroundColor: parsed.backgroundColor || '#FFFFFF',
+      layout: parsed.layout || 'grid',
+      reasoning: parsed.reasoning || '',
+    };
+  } catch (err) {
+    console.error(`[generateAdConcepts] ${style.id} failed:`, err);
+    return null;
+  }
+}
+
 export const agentsRouter = router({
+  /**
+   * Generate 3 distinct ad concepts in parallel
+   */
+  generateAdConcepts: protectedProcedure
+    .input(
+      z.object({
+        userMessage: z.string(),
+        canvasState: CanvasStateSchema,
+      })
+    )
+    .mutation(async ({ input }) => {
+      const startTime = Date.now();
+      const { userMessage, canvasState } = input;
+
+      // Generate all 3 concepts in parallel
+      const conceptPromises = AD_CONCEPT_STYLES.map((style) =>
+        generateSingleConcept(style, userMessage, canvasState)
+      );
+
+      const results = await Promise.all(conceptPromises);
+      const concepts = results.filter((c) => c !== null) as z.infer<typeof AdConceptSchema>[];
+
+      return {
+        concepts,
+        generationTime: Date.now() - startTime,
+      };
+    }),
+
   /**
    * Get multi-agent suggestions for a user request
    */
@@ -485,5 +614,33 @@ export const agentsRouter = router({
         console.error("[getRagEnhancedSuggestions] Error:", error);
         throw new Error("Failed to get RAG-enhanced suggestions");
       }
+    }),
+
+  /**
+   * Auto-spawn a Kling video ad when user selects a concept.
+   * Fire-and-forget: returns taskId immediately, client polls for status.
+   */
+  spawnVideoAd: protectedProcedure
+    .input(
+      z.object({
+        headline: z.string(),
+        cta: z.string().optional(),
+        products: z.array(
+          z.object({
+            name: z.string(),
+            category: z.string().optional(),
+            brand: z.string().optional(),
+          })
+        ),
+        formatLabel: z.string().optional(),
+        locale: z.string().optional(),
+      })
+    )
+    .mutation(async ({ input, ctx }) => {
+      const result = await autoSpawnKlingVideo({
+        ...input,
+        userId: ctx.user?.id,
+      });
+      return result;
     }),
 });
