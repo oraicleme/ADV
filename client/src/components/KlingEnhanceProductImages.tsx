@@ -1,11 +1,12 @@
 /**
  * KlingEnhanceProductImages
  *
- * Provides per-product and batch "Enhance with AI" buttons in the canvas product panel.
+ * Provides per-product and batch "Enhance with AI" buttons in the Export panel.
  * Uses Kling Kolors to:
  *   - Improve existing product images (image-to-image: studio background, better lighting)
  *   - Generate missing product images (text-to-image from name/category/brand)
  *
+ * Includes an interactive style selector: Studio / Lifestyle / Minimal.
  * Results are fed back via onAssignImage(productIndex, imageUrl), which updates
  * the canvas product's imageDataUri and causes an instant re-render.
  *
@@ -28,9 +29,37 @@ export type KlingEnhanceProductImagesProps = {
   products: EnhanceableProduct[];
   /** Called when an enhanced/generated image is ready; update product at index with the URL */
   onAssignImage: (productIndex: number, imageUrl: string) => void;
-  /** Style preset for all generations */
+  /** Initial style preset — user can change it in the UI */
   style?: 'studio' | 'lifestyle' | 'minimal';
 };
+
+type StyleOption = {
+  id: 'studio' | 'lifestyle' | 'minimal';
+  label: string;
+  description: string;
+  icon: string;
+};
+
+const STYLE_OPTIONS: StyleOption[] = [
+  {
+    id: 'studio',
+    label: 'Studio',
+    description: 'Clean white background, soft box lighting, commercial quality',
+    icon: '🏢',
+  },
+  {
+    id: 'lifestyle',
+    label: 'Lifestyle',
+    description: 'Natural environment, warm ambient light, editorial feel',
+    icon: '🌿',
+  },
+  {
+    id: 'minimal',
+    label: 'Minimal',
+    description: 'Pure white, flat lay, soft diffused shadows',
+    icon: '◻',
+  },
+];
 
 type ProductState = 'idle' | 'loading' | 'done' | 'error';
 
@@ -41,8 +70,9 @@ function isExternalUrl(uri?: string): boolean {
 export default function KlingEnhanceProductImages({
   products,
   onAssignImage,
-  style = 'studio',
+  style: initialStyle = 'studio',
 }: KlingEnhanceProductImagesProps) {
+  const [selectedStyle, setSelectedStyle] = useState<'studio' | 'lifestyle' | 'minimal'>(initialStyle);
   const [productStates, setProductStates] = useState<Record<number, ProductState>>({});
   const [batchLoading, setBatchLoading] = useState(false);
 
@@ -56,7 +86,7 @@ export default function KlingEnhanceProductImages({
   }, []);
 
   const enhanceSingle = useCallback(
-    async (index: number) => {
+    async (index: number, styleOverride?: 'studio' | 'lifestyle' | 'minimal') => {
       const product = products[index];
       if (!product) return;
       setProductState(index, 'loading');
@@ -68,7 +98,7 @@ export default function KlingEnhanceProductImages({
           brand: product.brand,
           existingImageUrl,
           aspectRatio: '1:1',
-          style,
+          style: styleOverride ?? selectedStyle,
         });
         onAssignImage(index, result.imageUrl);
         setProductState(index, 'done');
@@ -82,27 +112,27 @@ export default function KlingEnhanceProductImages({
         toast.error('Kling enhancement failed', { description: msg.slice(0, 120) });
       }
     },
-    [products, enhance, onAssignImage, style, setProductState],
+    [products, enhance, onAssignImage, selectedStyle, setProductState],
   );
 
   const enhanceAll = useCallback(async () => {
     if (batchLoading || products.length === 0) return;
     setBatchLoading(true);
     toast.message('Enhancing all product images…', {
-      description: `Processing ${products.length} product${products.length !== 1 ? 's' : ''} with Kling AI`,
+      description: `Processing ${products.length} product${products.length !== 1 ? 's' : ''} — ${selectedStyle} style`,
     });
     // Sequential to avoid Kling rate limits
     for (let i = 0; i < products.length; i++) {
       if (productStates[i] === 'done') continue; // skip already enhanced
-      await enhanceSingle(i);
+      await enhanceSingle(i, selectedStyle);
     }
     setBatchLoading(false);
     toast.success('All images enhanced', { description: 'Canvas updated with AI-enhanced product photos.' });
-  }, [batchLoading, products, productStates, enhanceSingle]);
+  }, [batchLoading, products, productStates, enhanceSingle, selectedStyle]);
 
   if (!isConfigured && health.data) {
     return (
-      <div className="flex items-start gap-2 rounded-lg bg-amber-500/10 p-2.5 text-[10px] text-amber-200">
+      <div className="mt-3 flex items-start gap-2 rounded-lg bg-amber-500/10 p-2.5 text-[10px] text-amber-200">
         <AlertCircle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
         <span>
           Kling not configured — set <code className="text-amber-100">KLING_ACCESS_KEY</code> and{' '}
@@ -120,31 +150,54 @@ export default function KlingEnhanceProductImages({
   return (
     <div className="mt-3 rounded-lg border border-white/10 bg-white/[0.03] p-3">
       {/* Header */}
-      <div className="mb-2.5 flex items-center justify-between">
-        <div className="flex items-center gap-1.5">
-          <Sparkles className="h-3.5 w-3.5 text-violet-400" aria-hidden />
-          <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-300">
-            AI Image Enhancement
-          </span>
-        </div>
-        {/* Style selector */}
-        <select
-          value={style}
-          onChange={() => {}} // controlled by parent — shown as read-only indicator
-          className="rounded bg-white/5 px-1.5 py-0.5 text-[9px] text-gray-400 border border-white/10 cursor-default"
-          title="Style preset"
-          disabled
-        >
-          <option value="studio">Studio</option>
-          <option value="lifestyle">Lifestyle</option>
-          <option value="minimal">Minimal</option>
-        </select>
+      <div className="mb-3 flex items-center gap-1.5">
+        <Sparkles className="h-3.5 w-3.5 text-violet-400" aria-hidden />
+        <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-300">
+          AI Image Enhancement
+        </span>
+        <span className="ml-auto rounded-full bg-violet-500/15 px-2 py-0.5 text-[9px] font-medium text-violet-400">
+          ~$0.03/image
+        </span>
       </div>
 
-      <p className="mb-2.5 text-[10px] leading-relaxed text-gray-500">
-        Kling AI generates professional product photos. Existing images get a clean studio
-        background; missing images are generated from the product name. ~$0.03/image.
-      </p>
+      {/* Style selector */}
+      <div className="mb-3">
+        <p className="mb-1.5 text-[9px] font-semibold uppercase tracking-widest text-gray-500">
+          Photo Style
+        </p>
+        <div className="grid grid-cols-3 gap-1.5">
+          {STYLE_OPTIONS.map((opt) => {
+            const isActive = selectedStyle === opt.id;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => setSelectedStyle(opt.id)}
+                disabled={anyLoading}
+                title={opt.description}
+                className="flex flex-col items-center gap-1 rounded-lg border px-2 py-2 text-center transition-all disabled:opacity-50"
+                style={{
+                  borderColor: isActive ? 'rgba(139, 92, 246, 0.6)' : 'rgba(255,255,255,0.08)',
+                  background: isActive ? 'rgba(139, 92, 246, 0.15)' : 'rgba(255,255,255,0.02)',
+                  cursor: anyLoading ? 'not-allowed' : 'pointer',
+                }}
+              >
+                <span className="text-base leading-none">{opt.icon}</span>
+                <span
+                  className="text-[10px] font-semibold leading-none"
+                  style={{ color: isActive ? '#c4b5fd' : '#9ca3af' }}
+                >
+                  {opt.label}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+        {/* Active style description */}
+        <p className="mt-1.5 text-[10px] leading-relaxed text-gray-500">
+          {STYLE_OPTIONS.find((o) => o.id === selectedStyle)?.description}
+        </p>
+      </div>
 
       {/* Batch button */}
       <button
@@ -159,7 +212,11 @@ export default function KlingEnhanceProductImages({
         ) : (
           <Sparkles className="h-3.5 w-3.5" />
         )}
-        {allDone ? 'All enhanced ✓' : batchLoading ? 'Enhancing…' : `Enhance all ${products.length} images`}
+        {allDone
+          ? 'All enhanced ✓'
+          : batchLoading
+          ? 'Enhancing…'
+          : `Enhance all ${products.length} image${products.length !== 1 ? 's' : ''}`}
       </button>
 
       {/* Per-product list */}
@@ -176,75 +233,71 @@ export default function KlingEnhanceProductImages({
             >
               {/* Thumbnail */}
               <div className="h-8 w-8 shrink-0 overflow-hidden rounded bg-white/10 flex items-center justify-center">
-                {hasImage && isExternal ? (
+                {hasImage ? (
                   <img
                     src={product.imageDataUri}
                     alt={product.name}
                     className="h-full w-full object-cover"
-                    referrerPolicy="no-referrer"
-                  />
-                ) : hasImage ? (
-                  <img
-                    src={product.imageDataUri}
-                    alt={product.name}
-                    className="h-full w-full object-cover"
+                    referrerPolicy={isExternal ? 'no-referrer' : undefined}
                   />
                 ) : (
                   <span className="text-[8px] text-gray-600">No img</span>
                 )}
               </div>
 
-              {/* Product name */}
+              {/* Product name + hint */}
               <div className="min-w-0 flex-1">
                 <p className="truncate text-[10px] font-medium text-gray-300">{product.name}</p>
                 <p className="text-[9px] text-gray-600">
-                  {hasImage
-                    ? isExternal
-                      ? '→ will enhance (studio bg)'
-                      : '→ will generate (local img)'
-                    : '→ will generate from name'}
+                  {state === 'done'
+                    ? '✓ Enhanced'
+                    : state === 'error'
+                    ? '✗ Failed — click to retry'
+                    : hasImage && isExternal
+                    ? 'will enhance with studio bg'
+                    : hasImage
+                    ? 'will generate (local img)'
+                    : 'will generate from name'}
                 </p>
               </div>
 
               {/* Status / Action */}
-              <div className="shrink-0">
+              <div className="flex shrink-0 items-center gap-1">
                 {state === 'loading' ? (
                   <Loader2 className="h-3.5 w-3.5 animate-spin text-violet-400" />
                 ) : state === 'done' ? (
-                  <button
-                    type="button"
-                    onClick={() => enhanceSingle(index)}
-                    title="Re-generate"
-                    className="text-emerald-400 hover:text-emerald-300"
-                  >
-                    <RefreshCw className="h-3 w-3" />
-                  </button>
+                  <>
+                    <CheckCircle2 className="h-3 w-3 text-emerald-400" />
+                    <button
+                      type="button"
+                      onClick={() => enhanceSingle(index)}
+                      title="Re-generate"
+                      className="rounded p-0.5 text-gray-500 hover:text-gray-300 transition-colors"
+                    >
+                      <RefreshCw className="h-3 w-3" />
+                    </button>
+                  </>
                 ) : state === 'error' ? (
                   <button
                     type="button"
                     onClick={() => enhanceSingle(index)}
                     title="Retry"
-                    className="text-red-400 hover:text-red-300"
+                    className="rounded px-1.5 py-0.5 text-[9px] font-semibold bg-red-500/20 text-red-400 hover:bg-red-500/30 transition-colors"
                   >
-                    <RefreshCw className="h-3 w-3" />
+                    Retry
                   </button>
                 ) : (
                   <button
                     type="button"
                     onClick={() => enhanceSingle(index)}
-                    disabled={!isConfigured}
-                    title={hasImage ? 'Enhance image' : 'Generate image'}
+                    disabled={!isConfigured || anyLoading}
+                    title={hasImage ? 'Enhance this image' : 'Generate image'}
                     className="rounded px-1.5 py-0.5 text-[9px] font-semibold bg-violet-500/20 text-violet-300 hover:bg-violet-500/30 disabled:opacity-50 transition-colors"
                   >
                     {hasImage ? 'Enhance' : 'Generate'}
                   </button>
                 )}
               </div>
-
-              {/* Done indicator */}
-              {state === 'done' && (
-                <CheckCircle2 className="h-3 w-3 shrink-0 text-emerald-400" />
-              )}
             </div>
           );
         })}
