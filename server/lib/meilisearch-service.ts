@@ -109,6 +109,37 @@ function buildEmbedderConfig() {
 // ---------------------------------------------------------------------------
 
 /**
+ * Enable the vector store experimental feature in Meilisearch.
+ *
+ * Required before registering any embedder. The feature is disabled by default
+ * in self-hosted Meilisearch instances. Safe to call repeatedly — idempotent.
+ *
+ * API: PATCH /experimental-features { "vectorStore": true }
+ */
+async function enableVectorStore(client: MeiliSearch): Promise<void> {
+  try {
+    // The JS SDK exposes experimental features via client.updateExperimentalFeatures()
+    // but the method name varies by SDK version. Use raw HTTP as the safe fallback.
+    const res = await fetch(`${ENV.meiliHost}/experimental-features`, {
+      method: 'PATCH',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${ENV.meiliApiKey}`,
+      },
+      body: JSON.stringify({ vectorStore: true }),
+    });
+    if (res.ok) {
+      console.log('[Meilisearch] Vector store experimental feature enabled.');
+    } else {
+      const body = await res.text();
+      console.warn('[Meilisearch] enableVectorStore: unexpected response', res.status, body);
+    }
+  } catch (err) {
+    console.warn('[Meilisearch] enableVectorStore: failed to enable vector store feature:', err);
+  }
+}
+
+/**
  * STORY-140 M1: Configure index settings + OpenAI embedder WITHOUT touching documents.
  *
  * Idempotent — safe to call on every app startup. Ensures the embedder is registered
@@ -116,6 +147,10 @@ function buildEmbedderConfig() {
  * have been added or changed since the last run.
  *
  * This decouples embedder lifecycle from document upsert (STORY-139 gap fix).
+ *
+ * FIX: enableVectorStore() is now called before updateEmbedders() to ensure the
+ * experimental feature is active. Without this, Meilisearch throws:
+ * "Passing `embedders` in settings requires enabling the `vector store` experimental feature."
  */
 export async function configureIndex(): Promise<void> {
   const client = getClient();
@@ -125,6 +160,9 @@ export async function configureIndex(): Promise<void> {
   await client.tasks.waitForTask(settingsTask.taskUid, { timeout: 30_000 });
 
   if (isHybridConfigured()) {
+    // Enable vector store FIRST — required before registering any embedder.
+    await enableVectorStore(client);
+
     try {
       const embedderTask = await index.updateEmbedders(
         buildEmbedderConfig() as Parameters<typeof index.updateEmbedders>[0],
@@ -133,6 +171,8 @@ export async function configureIndex(): Promise<void> {
       if ((result as { status?: string }).status === 'failed') {
         const err = (result as { error?: { message?: string } }).error;
         console.warn('[Meilisearch] configureIndex: embedder failed:', err?.message ?? result);
+      } else {
+        console.log('[Meilisearch] OpenAI embedder registered successfully.');
       }
     } catch (embedErr) {
       console.warn('[Meilisearch] configureIndex: embedder error:', embedErr);
