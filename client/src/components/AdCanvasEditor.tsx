@@ -1457,6 +1457,18 @@ export default function AdCanvasEditor({
                   productNames: products.slice(0, 5).map((p) => p.name),
                   category: products[0]?.category,
                 }}
+                klingEnhance={onAssignProductPhoto && products.length > 0 ? {
+                  products: products.map((p) => ({
+                    name: p.name,
+                    category: p.category,
+                    brand: p.brand,
+                    imageDataUri: p.imageDataUri,
+                  })),
+                  onAssignImage: (canvasIdx, imageUrl) => {
+                    onAssignProductPhoto(canvasIdx, imageUrl);
+                  },
+                  style: 'studio',
+                } : undefined}
               />
             </div>
           )}

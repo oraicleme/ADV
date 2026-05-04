@@ -27,6 +27,7 @@ import {
   klingSubmitImageGeneration,
   klingGetImageGenTask,
 } from '../lib/kling-media';
+import { enhanceProductImage } from '../lib/kling-enhance-image';
 
 function trpcFromKlingError(err: unknown, code: 'BAD_REQUEST' | 'INTERNAL_SERVER_ERROR' = 'INTERNAL_SERVER_ERROR'): never {
   if (err && typeof err === 'object' && 'status' in err) {
@@ -309,6 +310,44 @@ export const klingRouter = router({
           terminal: status.state === 'succeeded' || status.state === 'failed',
           vendor: process.env.NODE_ENV === 'development' ? status.raw : undefined,
         };
+      } catch (e) {
+        trpcFromKlingError(e);
+      }
+    }),
+
+  /* ── Product image enhancement (image-to-image or text-to-image) ─── */
+
+  /**
+   * Enhance or generate a product image using Kling Kolors.
+   * - If existingImageUrl is provided: image-to-image enhancement (studio background, better lighting)
+   * - If no image: text-to-image generation from product name/category/brand
+   * Server-side polling — blocks until image is ready (max 90s).
+   * Cost: ~$0.028 per image.
+   */
+  enhanceProductImage: protectedProcedure
+    .input(
+      z.object({
+        name: z.string().min(1).max(500),
+        category: z.string().max(200).optional(),
+        brand: z.string().max(200).optional(),
+        existingImageUrl: z.string().url().max(2000).optional(),
+        aspectRatio: z.enum(['1:1', '4:3', '3:4']).optional(),
+        style: z.enum(['studio', 'lifestyle', 'minimal']).optional(),
+      }),
+    )
+    .mutation(async ({ input, ctx }) => {
+      if (!isKlingConfigured()) {
+        throw new TRPCError({
+          code: 'PRECONDITION_FAILED',
+          message: 'Kling API is not configured (KLING_ACCESS_KEY / KLING_SECRET_KEY).',
+        });
+      }
+      try {
+        const result = await enhanceProductImage(input);
+        console.warn(
+          `[kling] enhanceProductImage user=${ctx.user.id} product="${input.name.slice(0, 40)}" wasEnhancement=${result.wasEnhancement}`,
+        );
+        return result;
       } catch (e) {
         trpcFromKlingError(e);
       }

@@ -10,6 +10,7 @@ import { exportAdAsImage, downloadBlob } from '../lib/export-image';
 import KlingCreativeSection, { type KlingCanvasContext } from './KlingCreativeSection';
 import KlingAnimateSection, { type KlingAnimateContext } from './KlingAnimateSection';
 import KlingImageGenSection, { type KlingImageGenContext } from './KlingImageGenSection';
+import KlingEnhanceProductImages, { type EnhanceableProduct } from './KlingEnhanceProductImages';
 
 interface ExportPanelProps {
   canvasElementId: string;
@@ -25,6 +26,12 @@ interface ExportPanelProps {
   klingAnimate?: KlingAnimateContext;
   /** Opt-in AI image generation for backgrounds */
   klingImageGen?: KlingImageGenContext;
+  /** Opt-in per-product image enhancement / generation via Kling Kolors */
+  klingEnhance?: {
+    products: EnhanceableProduct[];
+    onAssignImage: (productIndex: number, imageUrl: string) => void;
+    style?: 'studio' | 'lifestyle' | 'minimal';
+  };
 }
 
 export default function ExportPanel({
@@ -36,6 +43,7 @@ export default function ExportPanel({
   klingCanvas,
   klingAnimate,
   klingImageGen,
+  klingEnhance,
 }: ExportPanelProps) {
   const [isExporting, setIsExporting] = useState(false);
   const [exportError, setExportError] = useState<string | null>(null);
@@ -194,6 +202,13 @@ export default function ExportPanel({
       {klingCanvas ? <KlingCreativeSection context={klingCanvas} /> : null}
       {klingAnimate ? <KlingAnimateSection context={klingAnimate} /> : null}
       {klingImageGen ? <KlingImageGenSection context={klingImageGen} /> : null}
+      {klingEnhance && klingEnhance.products.length > 0 ? (
+        <KlingEnhanceProductImages
+          products={klingEnhance.products}
+          onAssignImage={klingEnhance.onAssignImage}
+          style={klingEnhance.style}
+        />
+      ) : null}
     </div>
   );
 }
