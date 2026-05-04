@@ -1,16 +1,22 @@
 /**
- * Catalog Health Monitor & Auto-Resync Service
- * 
- * Apple-level philosophy: The system should NEVER show an empty state.
- * If Meilisearch is empty or unhealthy, automatically recover by re-syncing
- * from the configured data source (Mobileland API, custom API, or cached data).
- * 
- * Self-healing pipeline:
- *   1. On startup → check Meilisearch health + document count
- *   2. If empty/unhealthy → trigger auto-resync from primary data source
- *   3. During operation → periodic health checks (every 5 min)
- *   4. On failure → graceful degradation (serve from cache, show helpful state)
- *   5. On recovery → silent re-index without user intervention
+ * Catalog Health Monitor & Incremental Sync Service
+ *
+ * Apple-level philosophy:
+ *   - The system should NEVER show an empty state
+ *   - Sync should be INCREMENTAL — only process what changed
+ *   - OpenAI embeddings are expensive — never recompute for unchanged products
+ *   - Users can trigger manual resync; the system also self-heals automatically
+ *
+ * Incremental sync pipeline:
+ *   1. Fetch products from source (Mobileland API / Custom API / Excel)
+ *   2. Compute content hash per product (name+brand+code+category)
+ *   3. Compare against stored hashes from last sync
+ *   4. Only send NEW or CHANGED products to Meilisearch (triggers embedding only for those)
+ *   5. DELETE products that disappeared from the source
+ *   6. Update stored hashes
+ *
+ * This means: if 34,742 products exist and only 50 changed,
+ * only 50 get re-indexed and only 50 get new OpenAI embeddings.
  */
 
 import { ENV } from '../_core/env';
@@ -18,10 +24,12 @@ import {
   isMeilisearchConfigured,
   configureIndex,
   indexCatalog,
+  deleteDocuments,
   getIndexStats,
   type MeiliProductDoc,
 } from './meilisearch-service';
-import { isMobilelandApiConfigured } from './mobileland-api';
+import { isMobilelandApiConfigured, buildOAuthHeader, type OAuthCredentials } from './mobileland-api';
+import { createHash } from 'crypto';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -30,20 +38,27 @@ import { isMobilelandApiConfigured } from './mobileland-api';
 export type CatalogSourceType = 'mobileland' | 'custom_api' | 'excel_cache' | 'none';
 
 export interface CatalogHealthStatus {
-  /** Whether Meilisearch is reachable and has documents */
   healthy: boolean;
-  /** Number of indexed documents */
   documentCount: number;
-  /** The active data source */
   activeSource: CatalogSourceType;
-  /** Whether a sync is currently in progress */
   syncing: boolean;
-  /** Last successful sync timestamp (ISO) */
   lastSyncAt: string | null;
-  /** Last error message (null if healthy) */
   lastError: string | null;
-  /** Whether auto-resync is enabled */
   autoResyncEnabled: boolean;
+  /** Incremental sync stats from last run */
+  lastSyncStats: SyncStats | null;
+}
+
+export interface SyncStats {
+  totalFromSource: number;
+  added: number;
+  updated: number;
+  deleted: number;
+  unchanged: number;
+  /** Duration in milliseconds */
+  durationMs: number;
+  /** Whether this was a full or incremental sync */
+  mode: 'full' | 'incremental';
 }
 
 interface SyncState {
@@ -51,8 +66,15 @@ interface SyncState {
   lastSyncAt: string | null;
   lastError: string | null;
   documentCount: number;
+  lastSyncStats: SyncStats | null;
   /** In-memory product cache for graceful degradation */
   cachedProducts: MeiliProductDoc[];
+  /** Content hash map: productId → hash of content fields */
+  contentHashes: Map<number, string>;
+  /** SKU → productId map for deduplication across syncs */
+  skuToId: Map<string, number>;
+  /** Next available product ID (auto-increment) */
+  nextId: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -64,79 +86,85 @@ const state: SyncState = {
   lastSyncAt: null,
   lastError: null,
   documentCount: 0,
+  lastSyncStats: null,
   cachedProducts: [],
+  contentHashes: new Map(),
+  skuToId: new Map(),
+  nextId: 0,
 };
 
 let healthCheckInterval: ReturnType<typeof setInterval> | null = null;
 
 // ---------------------------------------------------------------------------
-// Data source detection
+// Content hashing
 // ---------------------------------------------------------------------------
 
 /**
- * Determine the primary data source based on environment configuration.
- * Priority: Mobileland API > Custom API > Excel cache > None
+ * Compute a content hash for a product document.
+ * Only fields that affect search/display are included.
+ * If the hash is the same, the product hasn't changed → skip re-indexing.
  */
+function computeContentHash(doc: { name: string; brand: string; code: string; category: string }): string {
+  const content = `${doc.name}|${doc.brand}|${doc.code}|${doc.category}`;
+  return createHash('sha256').update(content).digest('hex').slice(0, 16); // 16 chars is enough for collision avoidance
+}
+
+// ---------------------------------------------------------------------------
+// Data source detection
+// ---------------------------------------------------------------------------
+
 export function detectActiveSource(): CatalogSourceType {
   if (isMobilelandApiConfigured()) return 'mobileland';
-  // Future: check for custom API configs in database
   if (state.cachedProducts.length > 0) return 'excel_cache';
   return 'none';
 }
 
 // ---------------------------------------------------------------------------
-// Mobileland product fetcher (for auto-resync)
+// Mobileland product fetcher
 // ---------------------------------------------------------------------------
 
-/**
- * Fetch products from Mobileland API and transform to MeiliProductDoc format.
- * Uses the same OAuth-signed requests as the image cache warmer.
- */
 async function fetchMobilelandProducts(): Promise<MeiliProductDoc[]> {
   if (!isMobilelandApiConfigured()) return [];
 
-  const OAuth = (await import('oauth-1.0a')).default;
-  const crypto = await import('crypto');
-
-  const oauth = new OAuth({
-    consumer: {
-      key: ENV.mobilelandConsumerKey,
-      secret: ENV.mobilelandConsumerSecret,
-    },
-    signature_method: 'HMAC-SHA256',
-    hash_function(baseString: string, key: string) {
-      return crypto.createHmac('sha256', key).update(baseString).digest('base64');
-    },
-  });
-
-  const token = {
-    key: ENV.mobilelandAccessToken,
-    secret: ENV.mobilelandAccessTokenSecret,
+  const oauthCreds: OAuthCredentials = {
+    consumerKey: ENV.mobilelandConsumerKey,
+    consumerSecret: ENV.mobilelandConsumerSecret,
+    token: ENV.mobilelandAccessToken,
+    tokenSecret: ENV.mobilelandAccessTokenSecret,
   };
 
   const baseUrl = ENV.mobilelandBaseUrl;
   const products: MeiliProductDoc[] = [];
   const PAGE_SIZE = 500;
-  const MAX_PAGES = 80; // Safety limit: 40,000 products max
+  const MAX_PAGES = 80;
 
-  // First page to get total count
-  const firstUrl = `${baseUrl}/rest/V1/products?searchCriteria[pageSize]=${PAGE_SIZE}&searchCriteria[currentPage]=1&fields=items[sku,name,price,custom_attributes],total_count`;
+  /**
+   * Build query params for a given page.
+   */
+  function buildQueryParams(page: number): Record<string, string> {
+    return {
+      'searchCriteria[pageSize]': String(PAGE_SIZE),
+      'searchCriteria[currentPage]': String(page),
+      'fields': 'items[sku,name,price,custom_attributes],total_count',
+    };
+  }
 
-  const firstAuth = oauth.authorize({ url: firstUrl, method: 'GET' }, token);
-  const firstHeaders = oauth.toHeader(firstAuth) as Record<string, string>;
+  /**
+   * Fetch a single page using the project's own OAuth 1.0 signing.
+   */
+  async function fetchPage(page: number) {
+    const url = `${baseUrl}/rest/V1/products`;
+    const queryParams = buildQueryParams(page);
+    const qs = new URLSearchParams(queryParams).toString();
+    const authHeader = buildOAuthHeader('GET', url, queryParams, oauthCreds);
 
-  let totalCount = 0;
-
-  try {
-    const firstRes = await fetch(firstUrl, {
-      headers: { ...firstHeaders, Accept: 'application/json' },
+    const res = await fetch(`${url}?${qs}`, {
+      method: 'GET',
+      headers: { Authorization: authHeader, Accept: 'application/json' },
+      signal: AbortSignal.timeout(30_000),
     });
-
-    if (!firstRes.ok) {
-      throw new Error(`Mobileland API returned ${firstRes.status}`);
-    }
-
-    const firstData = (await firstRes.json()) as {
+    if (!res.ok) throw new Error(`Mobileland API returned ${res.status}`);
+    return res.json() as Promise<{
       items: Array<{
         sku: string;
         name: string;
@@ -144,17 +172,21 @@ async function fetchMobilelandProducts(): Promise<MeiliProductDoc[]> {
         custom_attributes?: Array<{ attribute_code: string; value: string }>;
       }>;
       total_count: number;
-    };
+    }>;
+  }
 
+  let totalCount = 0;
+
+  try {
+    const firstData = await fetchPage(1);
     totalCount = firstData.total_count;
     const totalPages = Math.min(Math.ceil(totalCount / PAGE_SIZE), MAX_PAGES);
 
-    // Process first page
     for (const item of firstData.items) {
       const category = item.custom_attributes?.find(a => a.attribute_code === 'category_ids')?.value || '';
       const brand = item.custom_attributes?.find(a => a.attribute_code === 'manufacturer')?.value || '';
       products.push({
-        id: products.length,
+        id: resolveProductId(item.sku),
         name: item.name || item.sku,
         code: item.sku,
         brand,
@@ -162,25 +194,16 @@ async function fetchMobilelandProducts(): Promise<MeiliProductDoc[]> {
       });
     }
 
-    console.log(`[catalog-health] Mobileland: ${totalCount} total products, fetching ${totalPages} pages...`);
+    console.log(`[catalog-health] Mobileland: ${totalCount} total, fetching ${totalPages} pages...`);
 
-    // Fetch remaining pages (concurrency limited to 3)
     const CONCURRENCY = 3;
     for (let batch = 1; batch < totalPages; batch += CONCURRENCY) {
       const pagePromises = [];
       for (let i = 0; i < CONCURRENCY && batch + i < totalPages; i++) {
-        const page = batch + i + 1; // 1-indexed
-        const url = `${baseUrl}/rest/V1/products?searchCriteria[pageSize]=${PAGE_SIZE}&searchCriteria[currentPage]=${page}&fields=items[sku,name,price,custom_attributes],total_count`;
-        const auth = oauth.authorize({ url, method: 'GET' }, token);
-        const headers = oauth.toHeader(auth) as Record<string, string>;
-
+        const page = batch + i + 1;
         pagePromises.push(
-          fetch(url, { headers: { ...headers, Accept: 'application/json' } })
-            .then(async (res) => {
-              if (!res.ok) return [];
-              const data = (await res.json()) as { items: Array<{ sku: string; name: string; price?: number; custom_attributes?: Array<{ attribute_code: string; value: string }> }> };
-              return data.items || [];
-            })
+          fetchPage(page)
+            .then(data => data.items || [])
             .catch(() => [] as Array<{ sku: string; name: string; price?: number; custom_attributes?: Array<{ attribute_code: string; value: string }> }>)
         );
       }
@@ -191,7 +214,7 @@ async function fetchMobilelandProducts(): Promise<MeiliProductDoc[]> {
           const category = item.custom_attributes?.find(a => a.attribute_code === 'category_ids')?.value || '';
           const brand = item.custom_attributes?.find(a => a.attribute_code === 'manufacturer')?.value || '';
           products.push({
-            id: products.length,
+            id: resolveProductId(item.sku),
             name: item.name || item.sku,
             code: item.sku,
             brand,
@@ -211,15 +234,36 @@ async function fetchMobilelandProducts(): Promise<MeiliProductDoc[]> {
   return products;
 }
 
+/**
+ * Resolve a stable product ID for a given SKU.
+ * Same SKU always gets the same ID across syncs — prevents duplicate documents.
+ */
+function resolveProductId(sku: string): number {
+  const existing = state.skuToId.get(sku);
+  if (existing !== undefined) return existing;
+  const id = state.nextId++;
+  state.skuToId.set(sku, id);
+  return id;
+}
+
 // ---------------------------------------------------------------------------
-// Core sync logic
+// Incremental sync engine
 // ---------------------------------------------------------------------------
 
 /**
- * Perform a full catalog sync: fetch from source → index into Meilisearch.
- * Idempotent and safe to call multiple times.
+ * Perform an INCREMENTAL catalog sync:
+ *   1. Fetch all products from source
+ *   2. Diff against stored content hashes
+ *   3. Only index NEW + CHANGED products (saves OpenAI embedding costs)
+ *   4. Delete REMOVED products from Meilisearch
+ *   5. Update hash store
+ *
+ * Falls back to FULL sync when:
+ *   - First sync (no hashes stored)
+ *   - force=true parameter
+ *   - Meilisearch index is empty (recovery scenario)
  */
-export async function syncCatalog(force = false): Promise<{ ok: boolean; count: number; error?: string }> {
+export async function syncCatalog(force = false): Promise<{ ok: boolean; count: number; stats?: SyncStats; error?: string }> {
   if (state.syncing && !force) {
     return { ok: false, count: 0, error: 'Sync already in progress' };
   }
@@ -230,12 +274,13 @@ export async function syncCatalog(force = false): Promise<{ ok: boolean; count: 
 
   state.syncing = true;
   state.lastError = null;
+  const startTime = Date.now();
 
   try {
-    // Step 1: Configure index (idempotent — sets up embedder)
+    // Step 1: Configure index (idempotent)
     await configureIndex();
 
-    // Step 2: Fetch products from the active source
+    // Step 2: Fetch products from source
     const source = detectActiveSource();
     let products: MeiliProductDoc[] = [];
 
@@ -259,17 +304,36 @@ export async function syncCatalog(force = false): Promise<{ ok: boolean; count: 
       return { ok: false, count: 0, error: `Source "${source}" returned 0 products` };
     }
 
-    // Step 3: Index into Meilisearch
-    await indexCatalog(products);
+    // Step 3: Determine sync mode
+    const isFirstSync = state.contentHashes.size === 0;
+    const indexEmpty = state.documentCount === 0;
+    const doFullSync = force || isFirstSync || indexEmpty;
+
+    let stats: SyncStats;
+
+    if (doFullSync) {
+      // FULL SYNC: index everything, rebuild hash store
+      stats = await performFullSync(products);
+    } else {
+      // INCREMENTAL SYNC: only process changes
+      stats = await performIncrementalSync(products);
+    }
 
     // Step 4: Update state
     state.cachedProducts = products;
     state.documentCount = products.length;
     state.lastSyncAt = new Date().toISOString();
+    state.lastSyncStats = stats;
     state.syncing = false;
 
-    console.log(`[catalog-health] Sync complete: ${products.length} products indexed from ${source}`);
-    return { ok: true, count: products.length };
+    const mode = stats.mode === 'full' ? 'FULL' : 'INCREMENTAL';
+    console.log(
+      `[catalog-health] ${mode} sync complete: ${stats.totalFromSource} total, ` +
+      `+${stats.added} added, ~${stats.updated} updated, -${stats.deleted} deleted, ` +
+      `=${stats.unchanged} unchanged (${stats.durationMs}ms)`
+    );
+
+    return { ok: true, count: products.length, stats };
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     state.lastError = msg;
@@ -280,22 +344,141 @@ export async function syncCatalog(force = false): Promise<{ ok: boolean; count: 
 }
 
 /**
+ * Full sync: index all products, rebuild hash store from scratch.
+ * Used on first sync, forced resync, or recovery from empty index.
+ */
+async function performFullSync(products: MeiliProductDoc[]): Promise<SyncStats> {
+  const startTime = Date.now();
+
+  // Index all products
+  await indexCatalog(products);
+
+  // Rebuild hash store
+  state.contentHashes.clear();
+  for (const p of products) {
+    state.contentHashes.set(p.id, computeContentHash(p));
+  }
+
+  return {
+    totalFromSource: products.length,
+    added: products.length,
+    updated: 0,
+    deleted: 0,
+    unchanged: 0,
+    durationMs: Date.now() - startTime,
+    mode: 'full',
+  };
+}
+
+/**
+ * Incremental sync: diff against stored hashes, only process changes.
+ * 
+ * This is where the cost savings happen:
+ *   - Unchanged products: 0 API calls, 0 OpenAI embedding calls
+ *   - Changed products: 1 Meilisearch upsert → triggers 1 OpenAI embedding
+ *   - Deleted products: 1 Meilisearch delete call
+ */
+async function performIncrementalSync(products: MeiliProductDoc[]): Promise<SyncStats> {
+  const startTime = Date.now();
+
+  const newHashes = new Map<number, string>();
+  const toAdd: MeiliProductDoc[] = [];
+  const toUpdate: MeiliProductDoc[] = [];
+  const currentIds = new Set<number>();
+
+  // Compute new hashes and detect changes
+  for (const p of products) {
+    const hash = computeContentHash(p);
+    newHashes.set(p.id, hash);
+    currentIds.add(p.id);
+
+    const existingHash = state.contentHashes.get(p.id);
+    if (!existingHash) {
+      // New product — not in previous sync
+      toAdd.push(p);
+    } else if (existingHash !== hash) {
+      // Changed product — content differs
+      toUpdate.push(p);
+    }
+    // else: unchanged — skip entirely (no Meilisearch call, no OpenAI call)
+  }
+
+  // Detect deletions: products in old hash store but not in new source
+  const toDelete: number[] = [];
+  for (const [id] of state.contentHashes) {
+    if (!currentIds.has(id)) {
+      toDelete.push(id);
+    }
+  }
+
+  // Apply changes to Meilisearch
+  const docsToIndex = [...toAdd, ...toUpdate];
+  if (docsToIndex.length > 0) {
+    // addDocuments with same ID = upsert. Only these trigger new embeddings.
+    await indexCatalog(docsToIndex);
+    console.log(`[catalog-health] Incremental: indexed ${docsToIndex.length} changed docs (${toAdd.length} new, ${toUpdate.length} updated)`);
+  }
+
+  if (toDelete.length > 0) {
+    await deleteDocuments(toDelete);
+    console.log(`[catalog-health] Incremental: deleted ${toDelete.length} removed products`);
+  }
+
+  // Update hash store
+  state.contentHashes = newHashes;
+
+  // Clean up SKU map for deleted products
+  for (const id of toDelete) {
+    for (const [sku, skuId] of state.skuToId) {
+      if (skuId === id) {
+        state.skuToId.delete(sku);
+        break;
+      }
+    }
+  }
+
+  const unchanged = products.length - toAdd.length - toUpdate.length;
+
+  return {
+    totalFromSource: products.length,
+    added: toAdd.length,
+    updated: toUpdate.length,
+    deleted: toDelete.length,
+    unchanged,
+    durationMs: Date.now() - startTime,
+    mode: 'incremental',
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Excel cache (for user uploads)
+// ---------------------------------------------------------------------------
+
+/**
  * Cache products from an Excel upload for future auto-resync.
- * Called when user uploads Excel — stores in memory for recovery.
+ * Also builds the hash store so subsequent syncs are incremental.
  */
 export function cacheExcelProducts(products: MeiliProductDoc[]): void {
   state.cachedProducts = products;
   state.documentCount = products.length;
   state.lastSyncAt = new Date().toISOString();
+
+  // Build hash store from Excel data
+  state.contentHashes.clear();
+  state.skuToId.clear();
+  for (const p of products) {
+    state.contentHashes.set(p.id, computeContentHash(p));
+    state.skuToId.set(p.code, p.id);
+  }
+  if (products.length > 0) {
+    state.nextId = Math.max(...products.map(p => p.id)) + 1;
+  }
 }
 
 // ---------------------------------------------------------------------------
 // Health check
 // ---------------------------------------------------------------------------
 
-/**
- * Get current catalog health status.
- */
 export async function getCatalogHealth(): Promise<CatalogHealthStatus> {
   let healthy = false;
   let documentCount = 0;
@@ -319,6 +502,7 @@ export async function getCatalogHealth(): Promise<CatalogHealthStatus> {
     lastSyncAt: state.lastSyncAt,
     lastError: state.lastError,
     autoResyncEnabled: isMeilisearchConfigured() && detectActiveSource() !== 'none',
+    lastSyncStats: state.lastSyncStats,
   };
 }
 
@@ -328,12 +512,7 @@ export async function getCatalogHealth(): Promise<CatalogHealthStatus> {
 
 /**
  * Initialize the self-healing catalog pipeline.
- * Call this at server startup AFTER Meilisearch is configured.
- * 
- * Behavior:
- *   1. Check if Meilisearch has documents
- *   2. If empty AND a data source is configured → auto-sync
- *   3. Start periodic health checks (every 5 minutes)
+ * On startup: check Meilisearch health → auto-sync if empty → start periodic checks.
  */
 export async function initCatalogHealth(): Promise<void> {
   if (!isMeilisearchConfigured()) {
@@ -343,7 +522,6 @@ export async function initCatalogHealth(): Promise<void> {
 
   console.log('[catalog-health] Initializing self-healing catalog pipeline...');
 
-  // Check current state
   let needsSync = false;
   try {
     const stats = await getIndexStats();
@@ -359,13 +537,15 @@ export async function initCatalogHealth(): Promise<void> {
     needsSync = true;
   }
 
-  // Auto-sync if needed (non-blocking — runs in background)
+  // Auto-sync if needed (non-blocking)
   if (needsSync && detectActiveSource() !== 'none') {
-    // Small delay to let other startup tasks complete
     setTimeout(() => {
-      syncCatalog().then((result) => {
+      syncCatalog(true).then((result) => {
         if (result.ok) {
           console.log(`[catalog-health] Auto-resync successful: ${result.count} products`);
+          if (result.stats) {
+            console.log(`[catalog-health] Stats: +${result.stats.added} added, ~${result.stats.updated} updated, -${result.stats.deleted} deleted`);
+          }
         } else {
           console.warn(`[catalog-health] Auto-resync failed: ${result.error}`);
         }
@@ -380,29 +560,29 @@ export async function initCatalogHealth(): Promise<void> {
       const health = await getCatalogHealth();
       if (!health.healthy && health.activeSource !== 'none' && !health.syncing) {
         console.log('[catalog-health] Periodic check: index unhealthy, triggering resync...');
-        await syncCatalog();
+        await syncCatalog(); // Will be incremental if hashes exist
       }
     } catch {
-      // Silent — don't crash on health check failure
+      // Silent
     }
-  }, 5 * 60 * 1000); // 5 minutes
+  }, 5 * 60 * 1000);
 }
 
-/**
- * Get cached products for graceful degradation when Meilisearch is down.
- */
+// ---------------------------------------------------------------------------
+// Public getters
+// ---------------------------------------------------------------------------
+
 export function getCachedProducts(): MeiliProductDoc[] {
   return state.cachedProducts;
 }
 
-/**
- * Get sync state (for API responses).
- */
-export function getSyncState(): Pick<SyncState, 'syncing' | 'lastSyncAt' | 'lastError' | 'documentCount'> {
+export function getSyncState() {
   return {
     syncing: state.syncing,
     lastSyncAt: state.lastSyncAt,
     lastError: state.lastError,
     documentCount: state.documentCount,
+    lastSyncStats: state.lastSyncStats,
+    hashStoreSize: state.contentHashes.size,
   };
 }
