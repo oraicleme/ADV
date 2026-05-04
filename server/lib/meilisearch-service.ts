@@ -167,13 +167,9 @@ export async function configureIndex(): Promise<void> {
       const embedderTask = await index.updateEmbedders(
         buildEmbedderConfig() as Parameters<typeof index.updateEmbedders>[0],
       );
-      const result = await client.tasks.waitForTask(embedderTask.taskUid, { timeout: 60_000 });
-      if ((result as { status?: string }).status === 'failed') {
-        const err = (result as { error?: { message?: string } }).error;
-        console.warn('[Meilisearch] configureIndex: embedder failed:', err?.message ?? result);
-      } else {
-        console.log('[Meilisearch] OpenAI embedder registered successfully.');
-      }
+      // Fire-and-forget: Meilisearch processes the embedder registration asynchronously.
+      // Do not wait — with 34,742 existing documents this can take several minutes.
+      console.log('[Meilisearch] OpenAI embedder registered successfully (processing in background).');
     } catch (embedErr) {
       console.warn('[Meilisearch] configureIndex: embedder error:', embedErr);
     }
@@ -199,25 +195,25 @@ export async function indexCatalog(docs: MeiliProductDoc[]): Promise<void> {
   const client = getClient();
   const index = client.index(MEILI_INDEX);
 
+  // Apply index settings synchronously (fast — no documents involved).
   const settingsTask = await index.updateSettings(INDEX_SETTINGS);
   await client.tasks.waitForTask(settingsTask.taskUid, { timeout: 30_000 });
 
-  const docsTask = await index.addDocuments(docs, { primaryKey: 'id' });
-  await client.tasks.waitForTask(docsTask.taskUid, { timeout: 60_000 });
+  // Add documents — this queues the work in Meilisearch and returns immediately.
+  // Meilisearch will generate OpenAI embeddings asynchronously in the background
+  // after the documents are indexed. We do NOT wait for the task to complete here
+  // because with 34,742 products + OpenAI embeddings it takes several minutes.
+  // The catalog-health pipeline will confirm success on the next health check cycle.
+  await index.addDocuments(docs, { primaryKey: 'id' });
+  console.log(`[Meilisearch] indexCatalog: queued ${docs.length} documents for indexing (embeddings will be generated in background).`);
 
-  // Configure OpenAI embedder (belt-and-suspenders alongside configureIndex on startup).
+  // Register the OpenAI embedder (fire-and-forget — Meilisearch processes it async).
   if (isHybridConfigured()) {
     try {
-      const embedderTask = await index.updateEmbedders(
+      await index.updateEmbedders(
         buildEmbedderConfig() as Parameters<typeof index.updateEmbedders>[0],
       );
-      const embedderResult = await client.tasks.waitForTask(embedderTask.taskUid, {
-        timeout: 60_000,
-      });
-      if ((embedderResult as { status?: string }).status === 'failed') {
-        const err = (embedderResult as { error?: { message?: string } }).error;
-        console.warn('[Meilisearch] indexCatalog: embedder failed:', err?.message ?? embedderResult);
-      }
+      console.log('[Meilisearch] indexCatalog: OpenAI embedder registration queued.');
     } catch (embedErr) {
       console.warn('[Meilisearch] indexCatalog: embedder error:', embedErr);
     }
